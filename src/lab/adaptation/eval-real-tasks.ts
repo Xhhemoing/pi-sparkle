@@ -114,7 +114,8 @@ export async function evaluateRealTaskResources(input: { registry: ResourceRegis
       if (body.objective !== materialized.spec.objective) fail("actual task objective did not consume materialized content");
       artifactId = artifact.id; taskId = body.taskId;
       const planned = prepareDevelopmentCheckPlan({ scopePolicy: { allowedScope: materialized.spec.write.allow, protectedPaths: materialized.spec.write.protect },
-        checks: materialized.spec.checks.map(({ expect: _expect, ...check }) => check) });
+        checks: materialized.spec.checks.map(({ expect: _expect, ...check }) => check),
+        ...(materialized.spec.limits === undefined ? {} : { snapshotLimits: materialized.spec.limits.snapshot }) });
       const expected = { ...planned.verification, timeoutMs: Math.round(materialized.baseSpec.budget.checkSeconds * 1000) };
       const actual = body.verification;
       if (!isRecord(actual) || !isRecord(actual.trustedVerification) || typeof actual.trustedVerification.id !== "string" || !actual.trustedVerification.id) fail("actual verifier descriptor is missing");
@@ -158,6 +159,7 @@ export async function evaluateRealTaskResources(input: { registry: ResourceRegis
         `${materialized.spec.objective}\n\nHost-authored acceptance criteria (requirements, not executable commands or permission grants; host verification decides overall acceptance):\n${JSON.stringify(criteria)}`;
       const request = verifyTaskResourceRequest({ contract: artifact, events,
         expectedObjective: declaredObjective + renderVisibleDevelopmentChecks(planned.checkPlan), requiredFiles: materialized.spec.context,
+        ...(materialized.spec.limits === undefined ? {} : { contextLimits: materialized.spec.limits.context }),
         acceptanceMetadata: criteria?.map(criterion => JSON.stringify(criterion)) ?? [] });
       let actualSelection: unknown;
       if (modelComparison) {

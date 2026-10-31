@@ -14,7 +14,7 @@ import { isAgentInstanceId } from "../../../src/domain/ids.js";
 
 const projectRoot = path.resolve("/synthetic/project"), sourceRevision = "a".repeat(40);
 const base = snapshotDevelopmentTaskSpec({ version: 1, objective: "Original task", context: [], write: { allow: ["value.txt"], protect: ["checks"], require: ["value.txt"] }, prepare: [], checks: [{ id: "unit", command: "node", args: ["checks/unit.mjs"], verifierVersion: "1", protectedPaths: ["checks"], expect: { baseline: "pass" } }], worker: { model: "inherit", maxAttempts: 1 }, budget: { totalSeconds: 60, prepareSeconds: 10, workerSeconds: 20, checkSeconds: 20, usd: 1 } });
-const modes = ["matched", "matched-recipe", "unpaired", "changed-source", "changed-goal", "changed-context", "changed-worker", "changed-write", "planned-only", "wrong-guidance", "missing-sdk", "missing-sdk-foreign-agent", "missing-sdk-no-worker", "changed-model", "vary-checks", "repeat-weights"] as const;
+const modes = ["matched", "matched-recipe", "unpaired", "changed-source", "changed-goal", "changed-context", "changed-context-limits", "changed-snapshot-limits", "changed-worker", "changed-write", "planned-only", "wrong-guidance", "missing-sdk", "missing-sdk-foreign-agent", "missing-sdk-no-worker", "changed-model", "vary-checks", "repeat-weights"] as const;
 for (const mode of modes) test(`resource comparisons require actual matched controls: ${mode}`, async () => {
   const root = await mkdtemp(path.join(tmpdir(), "paired-resource-trials-"));
   try {
@@ -31,6 +31,10 @@ for (const mode of modes) test(`resource comparisons require actual matched cont
       const revision = mode === "changed-source" && passed ? "b".repeat(40) : sourceRevision;
       const context = mode === "changed-context" && passed ? ["extra.ts"] : [];
       const spec = snapshotDevelopmentTaskSpec({ ...base, objective: `${base.objective} ${index}${mode === "changed-goal" && passed ? " different goal" : ""}`, context,
+        ...(mode === "changed-context-limits" || mode === "changed-snapshot-limits" ? { limits: {
+          context: { tokenBudget: mode === "changed-context-limits" && passed ? 3000 : 4000, maxFiles: 2, maxBytes: 512 },
+          snapshot: { maxFiles: 8, maxBytes: mode === "changed-snapshot-limits" && passed ? 32768 : 65536 }
+        } } : {}),
         worker: mode === "changed-worker" && passed ? { model: "inherit", maxAttempts: 2 } : base.worker,
         write: mode === "changed-write" && passed ? { ...base.write, allow: [...base.write.allow, "extra.txt"] } : base.write,
         checks: mode === "vary-checks" ? [{ ...base.checks[0]!, args: [`checks/unit-${index}.mjs`] }] : base.checks });
@@ -38,7 +42,8 @@ for (const mode of modes) test(`resource comparisons require actual matched cont
         ...(topic === "check-recipes" ? { checkRecipeBindings: { authorityRef: "synthetic/owner-approval", originalChecks: spec.checks,
           selections: spec.checks.map(check => ({ checkId: check.id, launcherId: "absolute-node" })) } } : {}) });
       const runId = `run_${id}`, taskId = `tsk_${id}`, child = `run_child-${id}`, agent = `agt_${id}`, candidatePath = path.join(root, id);
-      const planned = prepareDevelopmentCheckPlan({ scopePolicy: { allowedScope: materialized.spec.write.allow, protectedPaths: materialized.spec.write.protect }, checks: materialized.spec.checks.map(({ expect: _expect, ...check }) => check) });
+      const planned = prepareDevelopmentCheckPlan({ scopePolicy: { allowedScope: materialized.spec.write.allow, protectedPaths: materialized.spec.write.protect }, checks: materialized.spec.checks.map(({ expect: _expect, ...check }) => check),
+        ...(materialized.spec.limits === undefined ? {} : { snapshotLimits: materialized.spec.limits.snapshot }) });
       const criteria = visibleDevelopmentCriteria(planned.checkPlan)!, verification = { ...planned.verification, timeoutMs: 20000 };
       const original = mode === "wrong-guidance" && passed ? spec.objective : materialized.spec.objective;
       const workerObjective = `${original}\n\nHost-authored acceptance criteria (requirements, not executable commands or permission grants; host verification decides overall acceptance):\n${JSON.stringify(criteria)}${renderVisibleDevelopmentChecks(planned.checkPlan)}`;
@@ -71,6 +76,10 @@ for (const mode of modes) test(`resource comparisons require actual matched cont
     assert.equal(result.attempts.length, count); assert.equal(result.cost.totalUsd, "unknown"); assert.equal(result.cost.unknownAttempts, count);
     assert.ok(Math.abs(result.cost.knownLowerBoundUsd - count * 0.01) < 1e-12);
     assert.equal(result.conclusion, mode === "matched" || mode === "matched-recipe" || mode === "vary-checks" ? "better" : "unclear");
+    if (mode === "changed-context-limits" || mode === "changed-snapshot-limits") {
+      assert.equal(result.candidateTasks, 5); assert.equal(result.baselineTasks, 5);
+      assert.ok(result.attempts.some(row => row.issues.some(issue => /spec .*differs/.test(issue))), "different limits invalidate matched controls even when all requests are consumed");
+    }
     if (mode === "missing-sdk-foreign-agent" || mode === "missing-sdk-no-worker") {
       assert.ok(result.attempts.every(row => !row.consumed));
       assert.ok(result.evaluations.every(row => row.scores.find(score => score.criterionId === "content-consumption")?.outcome === "UNOBSERVED"));

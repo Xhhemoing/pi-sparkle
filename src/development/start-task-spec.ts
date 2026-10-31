@@ -1,3 +1,4 @@
+import { detachNodeOfflineLinks } from "./node-offline-preparation.js";
 import { lstat } from "node:fs/promises";
 import { openClosedLoop, closeClosedLoop, type ClosedLoopSession } from "../execution/closed-loop.js";
 import { DomainValidationError } from "../domain/errors.js";
@@ -25,7 +26,7 @@ export async function startDevelopmentTaskSpec(input: StartDevelopmentTaskSpecIn
   const sandboxRoot = input.sandboxRoot;
   const scopePolicy = { allowedScope: spec.write.allow, protectedPaths: spec.write.protect };
   const checks = spec.checks.map(({ expect: _expect, ...check }) => check);
-  const planned = prepareDevelopmentCheckPlan({ scopePolicy, checks });
+  const planned = prepareDevelopmentCheckPlan({ scopePolicy, checks, ...(spec.limits === undefined ? {} : { snapshotLimits: spec.limits.snapshot }) });
   const verification = Object.freeze({ ...planned.verification, timeoutMs: Math.round(spec.budget.checkSeconds * 1000) });
   const deadlineAt = started + Math.round(spec.budget.totalSeconds * 1000);
   const deadline = new AbortController();
@@ -45,10 +46,13 @@ export async function startDevelopmentTaskSpec(input: StartDevelopmentTaskSpecIn
       ...((spec.budget.workerTotalSeconds === undefined && spec.budget.checkTotalSeconds === undefined) ? {} : { phaseTimeLimits: {
         ...(spec.budget.workerTotalSeconds === undefined ? {} : { workerTotalMs: Math.round(spec.budget.workerTotalSeconds * 1000) }),
         ...(spec.budget.checkTotalSeconds === undefined ? {} : { checkTotalMs: Math.round(spec.budget.checkTotalSeconds * 1000) }) } }),
-      taskContext: { requiredFiles: spec.context, expectedSourceRevision: base.revision, tokenBudget: 16000 },
+      taskContext: { requiredFiles: spec.context, expectedSourceRevision: base.revision, tokenBudget: spec.limits?.context.tokenBudget ?? 16000, ...(spec.limits === undefined ? {} : { maxFiles: spec.limits.context.maxFiles, maxBytes: spec.limits.context.maxBytes }) },
       executorFactory: async (context) => {
-        if (preflight === undefined) preflight = await runTaskSpecPreflight({ candidatePath: context.candidatePath, sourceRevision: context.sourceRevision,
-          stateRoot, spec, signal: context.signal, onCommandCleanupUnsettled: context.onCommandCleanupUnsettled,
+        if (preflight === undefined) preflight = await runTaskSpecPreflight({ sourceRepo, candidatePath: context.candidatePath, sourceRevision: context.sourceRevision,
+          stateRoot, spec, signal: context.signal, verifySource: () => {
+            const fresh = prepareNativeWrite({ sourceRepo, objective: spec.objective, verification, signal: context.signal });
+            if (fresh.revision !== base.revision) throw new DomainValidationError("source changed during TaskSpec preparation");
+          }, onCommandCleanupUnsettled: context.onCommandCleanupUnsettled,
           ...(context.baseCheckBudget === undefined ? {} : { checkTimeRemainingMs: context.baseCheckBudget.remainingMs,
             onChecksElapsed: context.baseCheckBudget.recordElapsedMs }) });
         if (preflight.unsettledCommand !== undefined) {
@@ -77,7 +81,7 @@ export async function preflightDevelopmentTaskSpec(input: Omit<StartDevelopmentT
   assertTaskSpecStateOutside(input.sourceRepo, input.stateRoot);
   const sourceRepo = input.sourceRepo;
   const scopePolicy = { allowedScope: spec.write.allow, protectedPaths: spec.write.protect };
-  const planned = prepareDevelopmentCheckPlan({ scopePolicy, checks: spec.checks.map(({ expect: _expect, ...check }) => check) });
+  const planned = prepareDevelopmentCheckPlan({ scopePolicy, checks: spec.checks.map(({ expect: _expect, ...check }) => check), ...(spec.limits === undefined ? {} : { snapshotLimits: spec.limits.snapshot }) });
   const deadlineAt = started + Math.round(spec.budget.totalSeconds * 1000);
   const deadline = new AbortController();
   const signal = input.signal === undefined ? deadline.signal : AbortSignal.any([input.signal, deadline.signal]);
@@ -86,6 +90,7 @@ export async function preflightDevelopmentTaskSpec(input: Omit<StartDevelopmentT
   let candidate: ClosedLoopSession | undefined;
   let retain = false;
   let cleanupAttempted = false;
+  let fixedPreparationWithoutResult = false;
   let observationPath: string | undefined;
   const dispose = async (): Promise<void> => {
     if (candidate === undefined) return;
@@ -100,16 +105,37 @@ export async function preflightDevelopmentTaskSpec(input: Omit<StartDevelopmentT
     if (signal.aborted || performance.now() >= deadlineAt) throw new DomainValidationError("TaskSpec preflight deadline exhausted before allocation");
     candidate = await openClosedLoop({ sourceRepo: base.sourceRepo, ...(input.sandboxRoot === undefined ? {} : { sandboxRoot: input.sandboxRoot }) });
     if (candidate.revisionAtStart !== base.revision) throw new DomainValidationError("source changed during preflight allocation");
-    const result = await runTaskSpecPreflight({ candidatePath: candidate.worktree.cwd, sourceRevision: base.revision,
-      stateRoot: input.stateRoot, spec, signal, onCommandCleanupUnsettled: () => { retain = true; } });
+    fixedPreparationWithoutResult = spec.prepare.some(command => command.nodeOffline !== undefined);
+    const result = await runTaskSpecPreflight({ sourceRepo, candidatePath: candidate.worktree.cwd, sourceRevision: base.revision,
+      stateRoot: input.stateRoot, spec, signal, verifySource: () => {
+        const fresh = prepareNativeWrite({ sourceRepo, objective: spec.objective, ...planned, signal });
+        if (fresh.revision !== base.revision) throw new DomainValidationError("source changed during TaskSpec preparation");
+      }, onCommandCleanupUnsettled: () => { retain = true; } });
+    fixedPreparationWithoutResult = false;
     observationPath = result.artifactPath;
     retain ||= !result.effectsSettled;
-    if (!retain) await dispose();
+    if (!retain) {
+      try { detachNodeOfflineLinks(candidate.worktree.cwd, result.nodeInstallationLinks ?? []); }
+      catch (error) {
+        retain = true;
+        throw new DomainValidationError(`preflight dependency cleanup refused; candidate retained at ${candidate.worktree.cwd}; observation: ${result.artifactPath}; ${error instanceof Error ? error.message : String(error)}`);
+      }
+      await dispose();
+    }
     if (signal.aborted || performance.now() >= deadlineAt) throw new DomainValidationError(`standalone preflight cancelled or expired; observation: ${result.artifactPath}; candidate: ${candidate.worktree.cwd}`);
     return Object.freeze({ ...result, candidatePath: candidate.worktree.cwd,
       candidateDisposition: retain ? "retained-unsettled" as const : "removed" as const });
   } catch (error) {
-    if (error instanceof CommandCleanupIncompleteError) {
+    if (fixedPreparationWithoutResult && candidate !== undefined) {
+      retain = true;
+      const locator = `candidate retained at ${candidate.worktree.cwd}; attempted evidence root: ${input.stateRoot}; cleanup requires reconciliation`;
+      if (error instanceof CommandCleanupIncompleteError) error.message += `; ${locator}`;
+      else {
+        const unavailable = new DomainValidationError(`fixed preparation returned no complete preflight result; ${locator}; ${error instanceof Error ? error.message : String(error)}`);
+        unavailable.cause = error;
+        throw unavailable;
+      }
+    } else if (error instanceof CommandCleanupIncompleteError) {
       retain = true;
       error.message += `; preflight candidate retained at ${candidate?.worktree.cwd ?? "unavailable"}`;
     }

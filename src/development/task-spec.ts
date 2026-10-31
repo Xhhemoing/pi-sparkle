@@ -1,16 +1,29 @@
+import path from "node:path";
 import { types } from "node:util";
 import { DomainValidationError } from "../domain/errors.js";
 import { snapshotDevelopmentCheckPlan, type DevelopmentCheckDefinition } from "./check-plan.js";
 import { assertRequiredDevelopmentWrites, snapshotDevelopmentScopePolicy } from "./task-policy.js";
 import { workItemScope } from "./work-items.js";
 
-export interface DevelopmentTaskPreparation { readonly id: string; readonly command: string; readonly args: readonly string[]; }
+export interface DevelopmentTaskLimits {
+  readonly context: { readonly tokenBudget: number; readonly maxFiles: number; readonly maxBytes: number };
+  readonly snapshot: { readonly maxFiles: number; readonly maxBytes: number };
+}
+export interface NodeOfflinePreparation {
+  readonly nodeVersion: string;
+  readonly packageManagerVersion: string;
+  readonly storePath: string;
+  /** Host-declared read-only dependency storage; source and ancestor node_modules are refused. */
+  readonly readOnlySharedStores: readonly string[];
+}
+export interface DevelopmentTaskPreparation { readonly id: string; readonly command: string; readonly args: readonly string[]; readonly nodeOffline?: NodeOfflinePreparation; }
 export type DevelopmentTaskCheck = DevelopmentCheckDefinition & { readonly expect:
   | { readonly baseline: "pass" }
   | { readonly baseline: "fail"; readonly failureAssertion: string } };
 /** Experimental normalized JSON TaskSpec; parsing performs no preparation or execution. */
 export interface DevelopmentTaskSpec {
   readonly version: 1;
+  readonly limits?: DevelopmentTaskLimits;
   readonly objective: string;
   readonly context: readonly string[];
   readonly write: { readonly allow: readonly string[]; readonly protect: readonly string[]; readonly require?: readonly string[] };
@@ -101,9 +114,23 @@ function freeze<T>(value: T): T {
   return value;
 }
 
+function taskLimits(value: unknown): DevelopmentTaskLimits {
+  const raw = record(value, ["context", "snapshot"]);
+  const context = record(raw.context, ["tokenBudget", "maxFiles", "maxBytes"]);
+  const snapshot = record(raw.snapshot, ["maxFiles", "maxBytes"]);
+  const bounded = (value: unknown, maximum: number, name: string): number => {
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1 || value > maximum) fail(`${name} limit must be an integer from 1 to ${maximum}`);
+    return value;
+  };
+  return { context: { tokenBudget: bounded(context.tokenBudget, 32768, "context tokenBudget"),
+    maxFiles: bounded(context.maxFiles, 32, "context maxFiles"), maxBytes: bounded(context.maxBytes, 65536, "context maxBytes") },
+  snapshot: { maxFiles: bounded(snapshot.maxFiles, 1024, "snapshot maxFiles"), maxBytes: bounded(snapshot.maxBytes, 16777216, "snapshot maxBytes") } };
+}
+
 export function snapshotDevelopmentTaskSpec(value: unknown): DevelopmentTaskSpec {
-  const raw = record(value, ["version", "objective", "context", "write", "prepare", "checks", "budget", "worker"]);
+  const raw = record(value, ["version", "objective", "context", "write", "prepare", "checks", "budget", "worker", "limits"]);
   if (raw.version !== 1) fail("version must be 1");
+  const limits = raw.limits === undefined ? undefined : taskLimits(raw.limits);
   const objective = text(raw.objective, 4096);
   const context = requiredContext(objective, raw.context === undefined ? [] : prefixes(raw.context, 32));
   const write = record(raw.write, ["allow", "protect", "require"]);
@@ -114,10 +141,27 @@ export function snapshotDevelopmentTaskSpec(value: unknown): DevelopmentTaskSpec
     assertRequiredDevelopmentWrites(scope, requiredWrites);
   }
   const prepare = (raw.prepare === undefined ? [] : array(raw.prepare, 8)).map((value) => {
-    const command = record(value, ["id", "command", "args"]);
+    const command = record(value, ["id", "command", "args", "nodeOffline"]);
     const id = text(command.id, 64);
     if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(id)) fail("preparation id must be a safe identifier");
-    return { id, command: text(command.command, 512), args: args(command.args) };
+    let nodeOffline: NodeOfflinePreparation | undefined;
+    if (command.nodeOffline !== undefined) {
+      if (limits === undefined) fail("fixed Node preparation requires complete explicit limits");
+      const node = record(command.nodeOffline, ["nodeVersion", "packageManagerVersion", "storePath", "readOnlySharedStores"]);
+      const absolute = (value: unknown): string => {
+        const selected = text(value, 4096);
+        if (!path.isAbsolute(selected)) fail("Node dependency storage must be an absolute host path");
+        return selected;
+      };
+      const version = (value: unknown): string => {
+        const selected = text(value, 64);
+        if (!/^\d+\.\d+\.\d+$/.test(selected)) fail("Node and pnpm versions must be exact stable versions");
+        return selected;
+      };
+      nodeOffline = { nodeVersion: version(node.nodeVersion), packageManagerVersion: version(node.packageManagerVersion),
+        storePath: absolute(node.storePath), readOnlySharedStores: array(node.readOnlySharedStores, 8).map(absolute) };
+    }
+    return { id, command: text(command.command, 512), args: args(command.args), ...(nodeOffline === undefined ? {} : { nodeOffline }) };
   });
   if (new Set(prepare.map((command) => command.id)).size !== prepare.length) fail("preparation ids must be unique");
   const checked = array(raw.checks, 8, 1).map((value) => {
@@ -134,7 +178,7 @@ export function snapshotDevelopmentTaskSpec(value: unknown): DevelopmentTaskSpec
   const worker = raw.worker === undefined ? { model: "inherit" } : record(raw.worker, ["model", "maxAttempts"]);
   if (worker.model !== "inherit") fail("worker model must inherit; explicit model selection is unsupported");
   if (worker.maxAttempts !== undefined && (!Number.isSafeInteger(worker.maxAttempts) || Number(worker.maxAttempts) < 1 || Number(worker.maxAttempts) > 5)) fail("worker maxAttempts must be an integer from 1 to 5");
-  return freeze({ version: 1, objective, context, write: { allow: scope.allowedScope, protect: scope.protectedPaths, ...(requiredWrites === undefined ? {} : { require: requiredWrites }) }, prepare,
+  return freeze({ version: 1, ...(limits === undefined ? {} : { limits }), objective, context, write: { allow: scope.allowedScope, protect: scope.protectedPaths, ...(requiredWrites === undefined ? {} : { require: requiredWrites }) }, prepare,
     checks: plan.checks.map((check, index) => ({ ...check, expect: checked[index]!.expect })),
     budget: { totalSeconds: duration(budget.totalSeconds), prepareSeconds: duration(budget.prepareSeconds),
       checkSeconds: duration(budget.checkSeconds), workerSeconds: duration(budget.workerSeconds),
