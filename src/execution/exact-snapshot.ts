@@ -27,6 +27,7 @@ interface SnapshotData {
   readonly scope: string;
   readonly entries: readonly Entry[];
   readonly limits: ExactSnapshotLimits;
+  readonly traversalEntries: number;
 }
 
 const snapshots = new WeakMap<ExactSnapshot, SnapshotData>();
@@ -46,9 +47,14 @@ function fail(reason: string): never {
   throw new DomainValidationError(`exact snapshot: ${reason}`);
 }
 
-function requireSnapshot(snapshot: ExactSnapshot): SnapshotData {
+function requireGenuineSnapshot(snapshot: ExactSnapshot): SnapshotData {
   const data = snapshots.get(snapshot);
   if (!data) fail("a genuine in-process snapshot handle is required");
+  return data;
+}
+
+function requireSnapshot(snapshot: ExactSnapshot): SnapshotData {
+  const data = requireGenuineSnapshot(snapshot);
   if (data.scope !== WHOLE_SCOPE) fail("only a whole-worktree snapshot can bind a Git tree");
   return data;
 }
@@ -456,6 +462,7 @@ export function captureExactSnapshot(
       root: canonicalRoot,
       scope,
       entries: selectedEntries,
+      traversalEntries: visited,
       limits: Object.freeze({ maxFiles: limits.maxFiles, maxBytes: limits.maxBytes })
     });
     return snapshot;
@@ -463,6 +470,11 @@ export function captureExactSnapshot(
     if (error instanceof DomainValidationError) throw error;
     fail("filesystem capture failed or path changed during capture");
   }
+}
+
+/** Capture traversal cost, including excluded children but not their descendants. */
+export function exactSnapshotTraversalEntries(snapshot: ExactSnapshot): number {
+  return requireGenuineSnapshot(snapshot).traversalEntries;
 }
 
 /** Only genuine in-process handles can participate in exact equality. */
@@ -494,6 +506,13 @@ export function assertExactSnapshotMatchesGitTree(snapshot: ExactSnapshot, repos
   // that need a second live check must capture another genuine handle.
 }
 
+/** Content evidence only: no authority to exclude paths or apply a candidate. */
+export function assertExactProjectionMatchesCompleteGitTree(snapshot: ExactSnapshot, repository: string, treeId: string): void {
+  const data = requireGenuineSnapshot(snapshot);
+  const root = repositoryRoot(repository, data.root);
+  compareTree(data, root, treeId);
+}
+
 export function assertGitAttributesPreserveExactBytes(
   snapshot: ExactSnapshot,
   repository: string,
@@ -501,6 +520,25 @@ export function assertGitAttributesPreserveExactBytes(
 ): void {
   const data = requireSnapshot(snapshot);
   const root = repositoryRoot(repository, data.root);
+  assertAttributesPreserveBytes(data, root, trees);
+}
+
+/** Attribute evidence only: no authority to exclude paths or apply a candidate. */
+export function assertProjectionGitAttributesPreserveBytes(
+  snapshot: ExactSnapshot,
+  repository: string,
+  trees: { readonly beforeTree: string; readonly afterTree: string }
+): void {
+  const data = requireGenuineSnapshot(snapshot);
+  const root = repositoryRoot(repository, data.root);
+  assertAttributesPreserveBytes(data, root, trees);
+}
+
+function assertAttributesPreserveBytes(
+  data: SnapshotData,
+  root: string,
+  trees: { readonly beforeTree: string; readonly afterTree: string }
+): void {
   if (!trees || typeof trees !== "object" || Array.isArray(trees)) fail("invalid Git tree pair");
   validateTreeId(trees.beforeTree);
   validateTreeId(trees.afterTree);

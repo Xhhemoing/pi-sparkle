@@ -7,6 +7,7 @@ import path from "node:path";
 import { buildTaskContext } from "../context/task-context.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { CommandCleanupIncompleteError, runAuthorizedCommand, type AuthorizedCommandRunResult } from "../execution/command-runner.js";
+import { issuePreparedNodeArtifacts, assertPreparedNodeArtifacts, assertPreparedDelivery, capturePreparedDelivery, type PreparedNodeArtifacts, type DeliveryProof } from "../execution/prepared-node-artifacts.js";
 import { captureExactSnapshot, sameExactSnapshot } from "../execution/exact-snapshot.js";
 import { captureWorktreeFingerprint } from "../execution/worktree-snapshot.js";
 import { snapshotDevelopmentTaskSpec, snapshotTaskSpecHostInput, type DevelopmentTaskSpec, type DevelopmentTaskPreparation } from "./task-spec.js";
@@ -49,6 +50,21 @@ export interface TaskPreflightResult {
   readonly nodeInstallations?: readonly NodeOfflineInstallation[];
   readonly nodeInstallationLinks?: readonly NodeOfflineLink[];
   readonly unsettledCommand?: AuthorizedCommandRunResult;
+}
+const preparedPreflights = new WeakMap<TaskPreflightResult, { artifacts: PreparedNodeArtifacts; delivery: DeliveryProof }>();
+const incompletePreparedOwnership = new WeakSet<TaskPreflightResult>();
+/** Original preflight objects only; artifact fields or JSON cannot grant ownership. */
+export function lookupPreparedNodeArtifacts(result: TaskPreflightResult): PreparedNodeArtifacts | undefined {
+  if (incompletePreparedOwnership.has(result)) throw new DomainValidationError("prepared artifact ownership is incomplete; candidate retained for reconciliation");
+  const prepared = preparedPreflights.get(result);
+  if (prepared !== undefined) assertPreparedNodeArtifacts(prepared.artifacts);
+  return prepared?.artifacts;
+}
+/** Before the first worker or standalone cleanup, baseline delivery must still be unchanged. */
+export function assertPreparedPreflight(result: TaskPreflightResult): void {
+  lookupPreparedNodeArtifacts(result);
+  const prepared = preparedPreflights.get(result);
+  if (prepared !== undefined) assertPreparedDelivery(prepared.artifacts, prepared.delivery);
 }
 /** Resolve existing ancestors before checking native path containment (including Windows case aliases). */
 export function assertTaskSpecStateOutside(rootPath: string, statePath: string): void {
@@ -113,6 +129,9 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
   const checks: PreflightCommand[] = [];
   const nodeInstallations: NodeOfflineInstallation[] = [];
   const nodeInstallationLinks: NodeOfflineLink[] = [];
+  let preparedArtifacts: PreparedNodeArtifacts | undefined;
+  let preparedDelivery: DeliveryProof | undefined;
+  let artifactOwnershipIncomplete = false;
   let preparationMs = 0;
   let checksMs = 0;
   let snapshotResources: TaskPreflightResources["snapshot"] = null;
@@ -152,6 +171,7 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
     const before = captureExactSnapshot(candidate, manifest, limits);
     snapshotResources = Object.freeze({ scope: "task-inputs", fileCount: before.fileCount, byteLength: before.byteLength });
     const unchanged = (): void => {
+      if (preparedArtifacts !== undefined && preparedDelivery !== undefined) assertPreparedDelivery(preparedArtifacts, preparedDelivery);
       input.verifySource?.();
       const current = captureWorktreeFingerprint(candidate);
       if (current.headRevision !== input.sourceRevision || current.entries.length !== 0 ||
@@ -192,11 +212,22 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
           unchanged();
         }
       }
+      // Generic recipes never acquire fixed-Node artifact exclusion authority.
+      if (spec.prepare.length > 0 && spec.prepare.every(command => command.nodeOffline !== undefined)) {
+        artifactOwnershipIncomplete = true;
+        preparedArtifacts = issuePreparedNodeArtifacts({ sourceRepo: input.sourceRepo!, candidatePath: candidate,
+          sourceRevision: input.sourceRevision, readOnlySharedStores: [...new Set(spec.prepare.flatMap(command => command.nodeOffline!.readOnlySharedStores))] });
+        preparedDelivery = capturePreparedDelivery(preparedArtifacts);
+        artifactOwnershipIncomplete = false;
+        unchanged();
+        if (performance.now() - preparationStart >= preparationLimitMs) throw new DomainValidationError("preflight preparation budget exhausted during artifact capture");
+      }
     } finally { preparationMs = performance.now() - preparationStart; }
     checksObserved = true;
     const checksStart = performance.now();
     try {
       for (const check of spec.checks) {
+        unchanged();
         const observed = await run(check, Math.min(check.timeoutMs ?? DEFAULT_RECIPE_TIMEOUT_MS,
           checkPhaseLimit - (performance.now() - checksStart)),
         check.maxStdoutBytes ?? DEFAULT_RECIPE_OUTPUT_BYTES, check.maxStderrBytes ?? DEFAULT_RECIPE_OUTPUT_BYTES);
@@ -223,20 +254,30 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
     preparation, nodeInstallations, nodeInstallationLinks, checks, unobservedChecks: spec.checks.slice(checks.length).map((check) => check.id),
     preparationMs, checksMs, resources: resources(), totalMs: performance.now() - started, modelInvocations: 0, costUsd: null });
   const correctExpired = (): void => {
-    if (ok && expired()) { ok = false; reason = "preflight cancelled or total time budget exhausted during persistence"; }
+    if (!ok) return;
+    try {
+      if (preparedArtifacts !== undefined && preparedDelivery !== undefined) assertPreparedDelivery(preparedArtifacts, preparedDelivery);
+      input.verifySource?.();
+      if (expired()) throw new DomainValidationError("preflight cancelled or total time budget exhausted during persistence");
+    } catch (error) { ok = false; reason = error instanceof Error ? error.message : String(error); }
   };
   try {
     await mkdir(artifactDirectory, { recursive: true });
     correctExpired();
     await writeFile(artifactPath, `${JSON.stringify(record(), null, 2)}\n`, { encoding: "utf8", flag: "wx" });
-    if (ok && expired()) {
+    const persistedOk = ok;
+    correctExpired();
+    if (persistedOk && !ok) {
       const supersedesArtifactPath = artifactPath;
-      correctExpired();
       artifactPath = path.join(artifactDirectory, `${randomUUID()}.json`);
       await writeFile(artifactPath, `${JSON.stringify({ ...record(), supersedesArtifactPath }, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
+      correctExpired();
     }
-    return Object.freeze({ ok, reason, ...(refusal === undefined ? {} : { refusal }), effectsSettled: unsettledCommand === undefined, artifactPath, preparationMs, checksMs, resources: resources(), nodeInstallations: Object.freeze([...nodeInstallations]), nodeInstallationLinks: Object.freeze([...nodeInstallationLinks]),
+    const result: TaskPreflightResult = Object.freeze({ ok, reason, ...(refusal === undefined ? {} : { refusal }), effectsSettled: unsettledCommand === undefined, artifactPath, preparationMs, checksMs, resources: resources(), nodeInstallations: Object.freeze([...nodeInstallations]), nodeInstallationLinks: Object.freeze([...nodeInstallationLinks]),
       ...(unsettledCommand === undefined ? {} : { unsettledCommand }) });
+    if (artifactOwnershipIncomplete) incompletePreparedOwnership.add(result);
+    if (preparedArtifacts !== undefined && preparedDelivery !== undefined) preparedPreflights.set(result, { artifacts: preparedArtifacts, delivery: preparedDelivery });
+    return result;
   } catch (error) {
     // Persistence failure must not erase the runner's unresolved effects.
     if (unsettledCommand !== undefined) {

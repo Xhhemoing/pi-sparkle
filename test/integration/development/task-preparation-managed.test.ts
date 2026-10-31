@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile, readlink, symlink, unlink } from "node:fs/promises";
 import path from "node:path";
 import { test } from "node:test";
 import { TaskSpecSession } from "../../../src/development/task-session.js";
@@ -76,7 +76,7 @@ f.appendFileSync(${JSON.stringify(path.join(root, "install.jsonl"))},JSON.string
     await session.shutdown();
     assert.equal(path.dirname(root), parent); assert.ok(path.basename(root).startsWith("case-"));
     if (passed) await rm(root, { recursive: true, force: true });
-    else console.error(`Managed preparation failure evidence retained: ${root}`);
+    else process.stderr.write(`Managed preparation failure evidence retained: ${root}\n`);
   }
 }
 async function assertSharedUnchanged(input: Fixture): Promise<void> {
@@ -134,6 +134,13 @@ for (const layout of ["linked", "regular"] as const) {
     assert.deepEqual(checked.map(row => row.value), ["before", "after", "after"], "apply must execute a fresh checker after acceptance");
     assert.ok(checked.every(row => row.cwd === result.candidatePath && String(row.resolved).startsWith(result.candidatePath + path.sep + "node_modules" + path.sep)));
     assert.deepEqual(await lines(path.join(input.root, "install.jsonl")), installations, "apply must not reinstall or refresh the prepared artifact");
+    const discarded = await input.session.discard(result.runId);
+    assert.equal(discarded.status, "DISPOSED", "successfully applied owned dependencies must remain explicitly disposable");
+    await assert.rejects(lstat(result.candidatePath), { code: "ENOENT" });
+    assert.equal(git(input.source, ["rev-parse", "HEAD"]), outcome.applied.appliedRevision);
+    assert.equal(await readFile(path.join(input.source, "value.txt"), "utf8"), "after");
+    await assertSharedUnchanged(input);
+    assert.equal((await input.session.discard(result.runId)).alreadyRecorded, true);
   }));
 }
 
@@ -149,3 +156,46 @@ for (const generic of [false, true]) {
     await assertSourceUnchanged(input);
   }));
 }
+for (const boundary of ["admission-link-swap", "prepared-delivery-rewrite"] as const) {
+  test(`prepared apply refuses ${boundary} across its actual ledger wait`, async () => fixture({ layout: "linked" }, async input => {
+    const { result } = await run(input);
+    assert.equal(result.accepted, true); assert.equal(result.managed, true);
+    let changed = false;
+    if (boundary === "admission-link-swap") {
+      const admit = input.session.ledger.admit.bind(input.session.ledger);
+      input.session.ledger.admit = async (...args) => {
+        const claim = await admit(...args);
+        const link = path.join(result.candidatePath, "node_modules", PACKAGE);
+        const original = await readlink(link);
+        await unlink(link); await symlink(path.join(input.store, PACKAGE), link, "junction");
+        assert.notEqual(await readlink(link), original);
+        changed = true; return claim;
+      };
+    } else {
+      const checkpoint = input.session.ledger.checkpoint.bind(input.session.ledger);
+      input.session.ledger.checkpoint = async (...args) => {
+        const claim = await checkpoint(...args);
+        await writeFile(path.join(result.candidatePath, "value.txt"), "wrong", "utf8");
+        changed = true; return claim;
+      };
+    }
+    await assert.rejects(input.session.apply(result.runId), /needs reconciliation|prepared|changed/i);
+    assert.equal(changed, true, "the actual ledger persistence seam must be reached");
+    await assertSourceUnchanged(input);
+    assert.ok((await lstat(result.candidatePath)).isDirectory(), "uncertain candidate must remain for reconciliation");
+  }));
+}
+
+test("prepared discard cancelled after admission preserves dependency links and candidate", async () => fixture({ layout: "linked" }, async input => {
+  const { result } = await run(input); assert.equal(result.managed, true);
+  const abort = new AbortController();
+  const admit = input.session.ledger.admit.bind(input.session.ledger);
+  let admitted = false;
+  input.session.ledger.admit = async (...args) => {
+    const claim = await admit(...args); admitted = true; abort.abort(); return claim;
+  };
+  await assert.rejects(input.session.discard(result.runId, abort.signal));
+  assert.equal(admitted, true);
+  assert.ok((await lstat(path.join(result.candidatePath, "node_modules", PACKAGE))).isSymbolicLink());
+  await assertSourceUnchanged(input);
+}));
