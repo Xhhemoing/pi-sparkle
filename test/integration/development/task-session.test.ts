@@ -261,3 +261,46 @@ test("an actual source ref publication failure stays uncertain and cannot replay
     assert.equal(refusals, 1); await access(run.candidatePath);
   } finally { cp.spawnSync = originalSpawn; syncBuiltinESMExports(); await session.shutdown(); }
 });
+
+test("whole-candidate capacity supports managed TaskSpec run and apply above both old bounds", { timeout: 600000 }, async () => {
+  const f = await fixture(), bulk = path.join(f.sourceRepo, "bulk");
+  await mkdir(bulk);
+  for (let index = 0; index < 1100; index++) await writeFile(path.join(bulk, `part-${index}.txt`), "synthetic", "utf8");
+  await writeFile(path.join(bulk, "payload.bin"), Buffer.alloc(17 * 1024 * 1024, 1));
+  git(f.sourceRepo, ["add", "."]); git(f.sourceRepo, ["-c", "commit.gpgsign=false", "commit", "-m", "large synthetic base"]);
+  const revision = git(f.sourceRepo, ["rev-parse", "HEAD"]), session = f.create();
+  const spec = snapshotDevelopmentTaskSpec({ ...f.spec, limits: { context: { tokenBudget: 4000, maxFiles: 2, maxBytes: 512 }, snapshot: { maxFiles: 8, maxBytes: 65536 } }, budget: { totalSeconds: 120, prepareSeconds: 30, checkSeconds: 30, workerSeconds: 30 } });
+  try {
+    const run = await session.run({ sourceRepo: f.sourceRepo, spec, executorFactory: f.factory() });
+    assert.equal(run.accepted, true); assert.equal(run.managed, true, "scoped snapshot limits must not cap whole-candidate apply ownership"); assert.equal(run.sourceRevision, revision);
+    assert.equal(git(f.sourceRepo, ["rev-parse", "HEAD"]), revision); assert.equal(await f.count(), 2);
+    const applied = await session.apply(run.runId);
+    assert.equal(applied.status, "APPLIED"); assert.equal(applied.reverified, true); assert.equal(await f.count(), 3);
+    assert.equal(await readFile(path.join(f.sourceRepo, "value.txt"), "utf8"), "after");
+    assert.equal((await readFile(path.join(f.sourceRepo, "bulk/payload.bin"))).byteLength, 17 * 1024 * 1024);
+    await access(run.artifactPath);
+  } finally { await session.shutdown(); }
+});
+
+for (const bound of ["files", "bytes"] as const) test(`whole-candidate ${bound} overflow retains an accepted unmanaged TaskSpec without apply authority`, { timeout: 180000 }, async () => {
+  const f = await fixture();
+  await writeFile(path.join(f.sourceRepo, ".gitignore"), ".cache/\n", "utf8");
+  git(f.sourceRepo, ["add", ".gitignore"]); git(f.sourceRepo, ["-c", "commit.gpgsign=false", "commit", "-m", "ignore candidate cache"]);
+  const revision = git(f.sourceRepo, ["rev-parse", "HEAD"]), session = f.create();
+  const code = "const f=require('node:fs');f.mkdirSync('.cache');" + (bound === "files"
+    ? "for(let i=0;i<4097;i++)f.writeFileSync('.cache/part-'+i+'.txt','synthetic')"
+    : "f.writeFileSync('.cache/payload.bin',Buffer.alloc(32*1024*1024+1,1))");
+  const spec = snapshotDevelopmentTaskSpec({ ...f.spec, prepare: [{ id: "synthetic-cache", command: process.execPath, args: ["-e", code] }],
+    budget: { totalSeconds: 120, prepareSeconds: 30, checkSeconds: 30, workerSeconds: 30 } });
+  let factories = 0;
+  try {
+    const run = await session.run({ sourceRepo: f.sourceRepo, spec, executorFactory: context => { factories++; return f.factory()(context); } });
+    assert.equal(factories, 1, "retain-only tasks still allocate their original executor after successful preparation and base checks");
+    assert.equal(run.accepted, true); assert.equal(run.effectsSettled, true); assert.equal(run.managed, false);
+    await assert.rejects(session.apply(run.runId), /managed/); await assert.rejects(session.discard(run.runId), /managed/);
+    await access(run.artifactPath); await access(path.join(run.candidatePath, ".cache"));
+    assert.equal(git(f.sourceRepo, ["rev-parse", "HEAD"]), revision);
+    assert.equal(await readFile(path.join(f.sourceRepo, "value.txt"), "utf8"), "before");
+    await assert.rejects(access(path.join(f.sourceRepo, ".cache")), { code: "ENOENT" });
+  } finally { await session.shutdown(); }
+});
