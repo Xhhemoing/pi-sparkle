@@ -92,9 +92,9 @@ export async function prepareNodeOffline(input: {
     }
   }
   // A fresh single-root candidate must not inherit an ancestor pnpm workspace.
-  // Keep this fixed option last so host CLI prefixes cannot switch discovery back on.
+  // Keep fixed options after host CLI prefixes; candidate package files must not alias store inodes.
   await input.execute([...input.recipe.args, "--version", "--ignore-workspace"], declaration.packageManagerVersion);
-  await input.execute([...input.recipe.args, "install", "--offline", "--frozen-lockfile", "--ignore-scripts", "--store-dir", store, "--ignore-workspace"]);
+  await input.execute([...input.recipe.args, "install", "--offline", "--frozen-lockfile", "--ignore-scripts", "--store-dir", store, "--ignore-workspace", "--package-import-method=copy"]);
   if (!readFileSync(manifestPath).equals(manifestBytes) || !readFileSync(lockPath).equals(lockBytes)) fail("installation changed package.json or the frozen lockfile");
   const modulesPath = path.join(candidate, "node_modules");
   const observeLinks = (selected: string): void => {

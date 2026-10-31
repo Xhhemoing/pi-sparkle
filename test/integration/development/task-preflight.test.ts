@@ -136,7 +136,7 @@ test("cumulative TaskSpec check pool charges base checks before its final phase"
       await context.tools.find((tool) => tool.name === "sparkle_write_file")!.execute("change", { path: "value.txt", contents: "fixed" }, signal);
       yield* new ProtocolChildExecutor().execute(request, signal);
     } }; } });
-  assert.equal(result.preflight?.ok, true);
+  assert.equal(result.preflight?.ok, true, result.preflight?.reason ?? "preflight did not run");
   assert.ok(result.preflight.checksMs >= 300);
   assert.equal(result.execution.acceptance.accepted, false);
   assert.equal(factories, 1);
