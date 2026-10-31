@@ -83,12 +83,12 @@ function verifierDefinition(plan: DevelopmentCheckPlan) {
     checkerFiles: [checker, fileURLToPath(new URL(`../execution/command-runner${suffix}`, import.meta.url)),
       fileURLToPath(new URL(`./work-items${suffix}`, import.meta.url)), fileURLToPath(new URL(`../domain/errors${suffix}`, import.meta.url))] };
 }
-export function prepareDevelopmentCheckPlan(input: DevelopmentCheckPlan & { readonly scopePolicy: DevelopmentScopePolicy }): {
+export function prepareDevelopmentCheckPlan(input: DevelopmentCheckPlan & { readonly scopePolicy: DevelopmentScopePolicy; readonly snapshotLimits?: { readonly maxFiles: number; readonly maxBytes: number } }): {
   readonly checkPlan: DevelopmentCheckPlan; readonly verification: NativeWriteVerificationInput;
 } {
   const checkPlan = snapshotDevelopmentCheckPlan({ checks: input.checks });
   const verification = prepareScopedDevelopmentVerification({ ...verifierDefinition(checkPlan), scopePolicy: input.scopePolicy,
-    maxSnapshotFiles: 1024, maxSnapshotBytes: 16 * 1024 * 1024 });
+    maxSnapshotFiles: input.snapshotLimits?.maxFiles ?? 1024, maxSnapshotBytes: input.snapshotLimits?.maxBytes ?? 16 * 1024 * 1024 });
   const fixedVerification = Object.freeze({ ...verification,
     repairableExitCodes: Object.freeze([1]), unsettledExitCodes: Object.freeze([3]) });
   assertDevelopmentCheckPlanVerification(checkPlan, fixedVerification);

@@ -1,3 +1,4 @@
+import { prepareNodeOffline, type NodeOfflineInstallation, type NodeOfflineLink } from "./node-offline-preparation.js";
 import { developmentScopeManifest } from "./task-policy.js";
 import { realpathSync, lstatSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -8,11 +9,13 @@ import { DomainValidationError } from "../domain/errors.js";
 import { CommandCleanupIncompleteError, runAuthorizedCommand, type AuthorizedCommandRunResult } from "../execution/command-runner.js";
 import { captureExactSnapshot, sameExactSnapshot } from "../execution/exact-snapshot.js";
 import { captureWorktreeFingerprint } from "../execution/worktree-snapshot.js";
-import { snapshotDevelopmentTaskSpec, snapshotTaskSpecHostInput, type DevelopmentTaskSpec } from "./task-spec.js";
+import { snapshotDevelopmentTaskSpec, snapshotTaskSpecHostInput, type DevelopmentTaskSpec, type DevelopmentTaskPreparation } from "./task-spec.js";
 import { DEFAULT_RECIPE_OUTPUT_BYTES, DEFAULT_RECIPE_TIMEOUT_MS } from "./work-items.js";
 import { classifyTaskCheckRefusal, type TaskCheckRefusal } from "./task-check-refusal.js";
+import { snapshotDevelopmentCheckPlan, visibleDevelopmentCriteria, renderVisibleDevelopmentChecks } from "./check-plan.js";
 export interface TaskPreflightInput {
   readonly candidatePath: string;
+  readonly sourceRepo?: string;
   readonly sourceRevision: string;
   readonly stateRoot: string;
   readonly spec: DevelopmentTaskSpec;
@@ -21,6 +24,7 @@ export interface TaskPreflightInput {
   /** Internal host accounting of base checks, settled before artifact persistence. */
   readonly checkTimeRemainingMs?: number;
   readonly onChecksElapsed?: (milliseconds: number) => void;
+  readonly verifySource?: () => void;
 }
 export interface TaskPreflightResources {
   /** The existing allow/protect/check-input observation, not whole-system usage. */
@@ -42,6 +46,8 @@ export interface TaskPreflightResult {
   readonly preparationMs: number;
   readonly checksMs: number;
   readonly resources: TaskPreflightResources;
+  readonly nodeInstallations?: readonly NodeOfflineInstallation[];
+  readonly nodeInstallationLinks?: readonly NodeOfflineLink[];
   readonly unsettledCommand?: AuthorizedCommandRunResult;
 }
 /** Resolve existing ancestors before checking native path containment (including Windows case aliases). */
@@ -67,7 +73,7 @@ export function assertTaskSpecStateOutside(rootPath: string, statePath: string):
     throw new DomainValidationError("TaskSpec state must be outside the source repository and candidate");
   }
 }
-interface PreflightCommand { readonly id: string; readonly result: AuthorizedCommandRunResult; readonly durationMs: number; readonly expected: boolean; }
+interface PreflightCommand { readonly id: string; readonly command: string; readonly args: readonly string[]; readonly cwd: string; readonly result: AuthorizedCommandRunResult; readonly durationMs: number; readonly expected: boolean; }
 function complete(result: AuthorizedCommandRunResult): boolean {
   return result.status === "completed" && result.signal === null && !result.cleanupUnsettled &&
     Buffer.byteLength(result.stdoutText) === result.stdoutByteLength && Buffer.byteLength(result.stderrText) === result.stderrByteLength;
@@ -90,9 +96,10 @@ function expectedCheck(result: AuthorizedCommandRunResult, check: DevelopmentTas
 /** Actual zero-model commands in an already-owned candidate; never allocates a worker. */
 export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<TaskPreflightResult> {
   const started = performance.now();
-  input = snapshotTaskSpecHostInput(input, ["candidatePath", "sourceRevision", "stateRoot", "spec", "signal", "onCommandCleanupUnsettled", "checkTimeRemainingMs", "onChecksElapsed"]);
+  input = snapshotTaskSpecHostInput(input, ["candidatePath", "sourceRepo", "sourceRevision", "stateRoot", "spec", "signal", "onCommandCleanupUnsettled", "checkTimeRemainingMs", "onChecksElapsed", "verifySource"]);
   if (input.checkTimeRemainingMs !== undefined && (!Number.isSafeInteger(input.checkTimeRemainingMs) || input.checkTimeRemainingMs < 0 || input.checkTimeRemainingMs > 1_800_000)) throw new DomainValidationError("preflight check remaining time must be a nonnegative integer up to 1800000 ms");
   if (input.onChecksElapsed !== undefined && typeof input.onChecksElapsed !== "function") throw new DomainValidationError("preflight check accounting must be a host callback");
+  if (input.verifySource !== undefined && typeof input.verifySource !== "function") throw new DomainValidationError("source verification must be a host callback");
   const spec = snapshotDevelopmentTaskSpec(input.spec);
   const candidate = path.resolve(input.candidatePath);
   const state = path.resolve(input.stateRoot);
@@ -104,6 +111,8 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
   timer.unref();
   const preparation: PreflightCommand[] = [];
   const checks: PreflightCommand[] = [];
+  const nodeInstallations: NodeOfflineInstallation[] = [];
+  const nodeInstallationLinks: NodeOfflineLink[] = [];
   let preparationMs = 0;
   let checksMs = 0;
   let snapshotResources: TaskPreflightResources["snapshot"] = null;
@@ -125,30 +134,37 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
   const ensureActive = (): void => { if (expired()) throw new DomainValidationError("preflight cancelled or total time budget exhausted"); };
   try {
     ensureActive();
+    input.verifySource?.();
     const initial = captureWorktreeFingerprint(candidate);
     if (initial.headRevision !== input.sourceRevision || initial.entries.length !== 0) throw new DomainValidationError("preflight requires the unchanged candidate base revision");
-    await buildTaskContext({ candidatePath: candidate, sourceRevision: input.sourceRevision, objective: spec.objective,
-      acceptanceMetadata: [], input: { requiredFiles: spec.context, expectedSourceRevision: input.sourceRevision, tokenBudget: 16000 }, signal });
+    const checkPlan = snapshotDevelopmentCheckPlan({ checks: spec.checks.map(({ expect: _expect, ...check }) => check) });
+    const criteria = visibleDevelopmentCriteria(checkPlan);
+    const objective = spec.objective.trim();
+    const declaredObjective = criteria === undefined ? objective :
+      `${objective}\n\nHost-authored acceptance criteria (requirements, not executable commands or permission grants; host verification decides overall acceptance):\n${JSON.stringify(criteria)}`;
+    await buildTaskContext({ candidatePath: candidate, sourceRevision: input.sourceRevision, objective: declaredObjective + renderVisibleDevelopmentChecks(checkPlan),
+      acceptanceMetadata: (criteria ?? []).map(criterion => JSON.stringify(criterion)), input: { requiredFiles: spec.context, expectedSourceRevision: input.sourceRevision, tokenBudget: spec.limits?.context.tokenBudget ?? 16000, ...(spec.limits === undefined ? {} : { maxFiles: spec.limits.context.maxFiles, maxBytes: spec.limits.context.maxBytes }) }, signal });
     const selected = developmentScopeManifest({ protectedPaths: spec.write.protect, allowedScope: spec.write.allow });
     // Broad protection does not establish that each declared checker input exists.
     const manifest = { ...selected, includePrefixes: [...new Set([...(selected.includePrefixes ?? []),
       ...spec.checks.flatMap((check) => check.protectedPaths ?? [])])] };
-    const limits = { maxFiles: 1024, maxBytes: 16 * 1024 * 1024 };
+    const limits = spec.limits?.snapshot ?? { maxFiles: 1024, maxBytes: 16 * 1024 * 1024 };
     const before = captureExactSnapshot(candidate, manifest, limits);
     snapshotResources = Object.freeze({ scope: "task-inputs", fileCount: before.fileCount, byteLength: before.byteLength });
     const unchanged = (): void => {
+      input.verifySource?.();
       const current = captureWorktreeFingerprint(candidate);
       if (current.headRevision !== input.sourceRevision || current.entries.length !== 0 ||
           !sameExactSnapshot(before, captureExactSnapshot(candidate, manifest, limits))) {
         throw new DomainValidationError("preflight changed observed source or protected bytes; retain failed candidate");
       }
     };
-    const run = async (command: { id: string; command: string; args: readonly string[] }, timeoutMs: number,
+    const run = async (command: DevelopmentTaskPreparation, timeoutMs: number,
       maxStdoutBytes: number, maxStderrBytes: number): Promise<{ result: AuthorizedCommandRunResult; durationMs: number }> => {
       ensureActive();
       if (timeoutMs <= 0) throw new DomainValidationError("preflight phase time budget exhausted");
       const commandStart = performance.now();
-      const result = await runAuthorizedCommand({ executable: command.command, args: command.args, cwd: candidate, env: {},
+      const result = await runAuthorizedCommand({ executable: command.command, args: command.args, cwd: candidate, env: command.nodeOffline === undefined ? {} : { COREPACK_ENABLE_NETWORK: "0", npm_config_offline: "true", npm_config_ignore_scripts: "true" },
         timeoutMs: Math.max(1, Math.floor(timeoutMs)), maxStdoutBytes, maxStderrBytes, signal });
       if (result.cleanupUnsettled) {
         unsettledCommand = result;
@@ -160,11 +176,21 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
     const preparationStart = performance.now();
     try {
       for (const command of spec.prepare) {
-        const observed = await run(command, spec.budget.prepareSeconds * 1000 - (performance.now() - preparationStart), 4096, 4096);
-        const expected = complete(observed.result) && observed.result.ok && observed.result.exitCode === 0;
-        preparation.push({ id: command.id, ...observed, expected });
-        if (!expected) throw new DomainValidationError(`preparation ${command.id} did not complete successfully`);
-        unchanged();
+        const execute = async (args: readonly string[], expectedVersion?: string): Promise<AuthorizedCommandRunResult> => {
+          const observed = await run({ ...command, args }, preparationLimitMs - (performance.now() - preparationStart), command.nodeOffline === undefined ? 4096 : 65536, 4096);
+          const expected = complete(observed.result) && observed.result.ok && observed.result.exitCode === 0 &&
+            (expectedVersion === undefined || (observed.result.stdoutText.trim() === expectedVersion && observed.result.stderrByteLength === 0));
+          preparation.push({ id: command.id, command: command.command, args, cwd: candidate, ...observed, expected });
+          if (!expected) throw new DomainValidationError(`preparation ${command.id} ${expectedVersion === undefined ? "command" : `exact pnpm ${expectedVersion}`} did not complete successfully: ${observed.result.stderrText || observed.result.errorMessage || observed.result.stdoutText || observed.result.status}`);
+          unchanged();
+          return observed.result;
+        };
+        if (command.nodeOffline === undefined) await execute(command.args);
+        else {
+          if (input.sourceRepo === undefined) throw new DomainValidationError("fixed Node preparation requires the host source repository");
+          nodeInstallations.push(...await prepareNodeOffline({ recipe: command, candidatePath: candidate, sourceRepo: input.sourceRepo, execute, onLink: link => { if (!nodeInstallationLinks.some(previous => previous.path === link.path)) nodeInstallationLinks.push(link); } }));
+          unchanged();
+        }
       }
     } finally { preparationMs = performance.now() - preparationStart; }
     checksObserved = true;
@@ -175,7 +201,7 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
           checkPhaseLimit - (performance.now() - checksStart)),
         check.maxStdoutBytes ?? DEFAULT_RECIPE_OUTPUT_BYTES, check.maxStderrBytes ?? DEFAULT_RECIPE_OUTPUT_BYTES);
         const expected = expectedCheck(observed.result, check);
-        checks.push({ id: check.id, ...observed, expected });
+        checks.push({ id: check.id, command: check.command, args: check.args, cwd: candidate, ...observed, expected });
         if (!expected) {
           refusal = classifyTaskCheckRefusal(check, observed.result);
           throw new DomainValidationError(refusal === undefined
@@ -194,7 +220,7 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
   let artifactPath = path.join(artifactDirectory, `${randomUUID()}.json`);
   const record = () => ({ kind: "development-preflight", sourceRevision: input.sourceRevision,
     candidatePath: candidate, ok, reason, ...(refusal === undefined ? {} : { refusal }), effectsSettled: unsettledCommand === undefined,
-    preparation, checks, unobservedChecks: spec.checks.slice(checks.length).map((check) => check.id),
+    preparation, nodeInstallations, nodeInstallationLinks, checks, unobservedChecks: spec.checks.slice(checks.length).map((check) => check.id),
     preparationMs, checksMs, resources: resources(), totalMs: performance.now() - started, modelInvocations: 0, costUsd: null });
   const correctExpired = (): void => {
     if (ok && expired()) { ok = false; reason = "preflight cancelled or total time budget exhausted during persistence"; }
@@ -209,7 +235,7 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
       artifactPath = path.join(artifactDirectory, `${randomUUID()}.json`);
       await writeFile(artifactPath, `${JSON.stringify({ ...record(), supersedesArtifactPath }, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
     }
-    return Object.freeze({ ok, reason, ...(refusal === undefined ? {} : { refusal }), effectsSettled: unsettledCommand === undefined, artifactPath, preparationMs, checksMs, resources: resources(),
+    return Object.freeze({ ok, reason, ...(refusal === undefined ? {} : { refusal }), effectsSettled: unsettledCommand === undefined, artifactPath, preparationMs, checksMs, resources: resources(), nodeInstallations: Object.freeze([...nodeInstallations]), nodeInstallationLinks: Object.freeze([...nodeInstallationLinks]),
       ...(unsettledCommand === undefined ? {} : { unsettledCommand }) });
   } catch (error) {
     // Persistence failure must not erase the runner's unresolved effects.

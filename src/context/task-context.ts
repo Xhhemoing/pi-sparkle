@@ -11,6 +11,8 @@ export interface TaskContextInput {
   readonly relatedFiles?: readonly string[];
   readonly expectedSourceRevision: string;
   readonly tokenBudget: number;
+  readonly maxFiles?: number;
+  readonly maxBytes?: number;
 }
 
 export interface TaskContextRequest {
@@ -112,10 +114,17 @@ function selectedPath(value: string): string {
 /** Validate and detach caller data synchronously, before any asynchronous allocation or reads. */
 export function snapshotTaskContext(input: TaskContextInput): TaskContextInput {
   const properties = dataProperties(input, "input");
+  const limit = (name: string, maximum: number): number => {
+    const value = ownValue(properties, name, true);
+    if (value === undefined) return maximum;
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1 || value > maximum) return invalid(`${name} limit must be an integer from 1 to ${maximum}`);
+    return value;
+  };
+  const maxFiles = limit("maxFiles", MAX_FILES), maxBytes = limit("maxBytes", MAX_SOURCE_BYTES);
   const required = stringArray(ownValue(properties, "requiredFiles"), "requiredFiles", MAX_FILES, 4096).map(selectedPath);
   const relatedValue = ownValue(properties, "relatedFiles", true);
   const related = relatedValue === undefined ? [] : stringArray(relatedValue, "relatedFiles", MAX_FILES, 4096).map(selectedPath);
-  if (required.length + related.length > MAX_FILES) return invalid(`at most ${MAX_FILES} selected files are allowed`);
+  if (required.length + related.length > maxFiles) return invalid(`at most ${maxFiles} selected files are allowed`);
   const revision = boundedString(ownValue(properties, "expectedSourceRevision"), "expectedSourceRevision", 256);
   const budget = ownValue(properties, "tokenBudget");
   if (typeof budget !== "number" || !Number.isSafeInteger(budget) || budget < 1 || budget > MAX_TOKEN_BUDGET) {
@@ -124,7 +133,7 @@ export function snapshotTaskContext(input: TaskContextInput): TaskContextInput {
   const requiredFiles = Object.freeze([...new Set(required)].sort());
   const requiredSet = new Set(requiredFiles);
   const relatedFiles = Object.freeze([...new Set(related)].filter((file) => !requiredSet.has(file)).sort());
-  return Object.freeze({ requiredFiles, relatedFiles, expectedSourceRevision: revision, tokenBudget: budget });
+  return Object.freeze({ requiredFiles, relatedFiles, expectedSourceRevision: revision, tokenBudget: budget, maxFiles, maxBytes });
 }
 
 function cancelled(signal: AbortSignal | undefined): void {
@@ -159,7 +168,7 @@ export async function buildTaskContext(request: TaskContextRequest): Promise<Tas
   if (sourceRevision !== input.expectedSourceRevision) return invalid("expected source revision does not match candidate base revision");
   const root = await realpath(candidatePath);
   cancelled(signal);
-  let remainingBytes = MAX_SOURCE_BYTES;
+  let remainingBytes = input.maxBytes ?? MAX_SOURCE_BYTES;
   const requiredFiles: TaskContextFile[] = [];
   const relatedFiles: TaskContextFile[] = [];
   const codeMap: CodeMapEntry[] = [];
