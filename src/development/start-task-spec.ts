@@ -1,3 +1,4 @@
+import { bindPreparedNodeVerification } from "../execution/trusted-verification.js";
 import { detachNodeOfflineLinks } from "./node-offline-preparation.js";
 import { lstat } from "node:fs/promises";
 import { openClosedLoop, closeClosedLoop, type ClosedLoopSession } from "../execution/closed-loop.js";
@@ -8,7 +9,7 @@ import type { NativeWriteExecutorFactory, NativeWriteSessionResult } from "../na
 import { prepareDevelopmentCheckPlan } from "./check-plan.js";
 import { startDevelopmentTask } from "./start-task.js";
 import { snapshotDevelopmentTaskSpec, snapshotTaskSpecHostInput, type DevelopmentTaskSpec } from "./task-spec.js";
-import { assertTaskSpecStateOutside, runTaskSpecPreflight, type TaskPreflightResult } from "./task-preflight.js";
+import { assertTaskSpecStateOutside, runTaskSpecPreflight, lookupPreparedNodeArtifacts, assertPreparedPreflight, type TaskPreflightResult } from "./task-preflight.js";
 export interface StartDevelopmentTaskSpecInput {
   readonly sourceRepo: string; readonly stateRoot: string; readonly sandboxRoot?: string;
   readonly spec: DevelopmentTaskSpec; readonly executorFactory: NativeWriteExecutorFactory; readonly signal?: AbortSignal;
@@ -48,6 +49,7 @@ export async function startDevelopmentTaskSpec(input: StartDevelopmentTaskSpecIn
         ...(spec.budget.checkTotalSeconds === undefined ? {} : { checkTotalMs: Math.round(spec.budget.checkTotalSeconds * 1000) }) } }),
       taskContext: { requiredFiles: spec.context, expectedSourceRevision: base.revision, tokenBudget: spec.limits?.context.tokenBudget ?? 16000, ...(spec.limits === undefined ? {} : { maxFiles: spec.limits.context.maxFiles, maxBytes: spec.limits.context.maxBytes }) },
       executorFactory: async (context) => {
+        const firstWorker = preflight === undefined;
         if (preflight === undefined) preflight = await runTaskSpecPreflight({ sourceRepo, candidatePath: context.candidatePath, sourceRevision: context.sourceRevision,
           stateRoot, spec, signal: context.signal, verifySource: () => {
             const fresh = prepareNativeWrite({ sourceRepo, objective: spec.objective, verification, signal: context.signal });
@@ -64,6 +66,10 @@ export async function startDevelopmentTaskSpec(input: StartDevelopmentTaskSpecIn
         const fresh = prepareNativeWrite({ sourceRepo, objective: spec.objective, verification, signal: context.signal });
         if (fresh.revision !== base.revision) throw new DomainValidationError("source changed during TaskSpec preparation");
         if (context.signal.aborted || performance.now() >= deadlineAt) throw new DomainValidationError("TaskSpec expired during source freshness verification");
+        if (firstWorker) assertPreparedPreflight(preflight);
+        const prepared = lookupPreparedNodeArtifacts(preflight);
+        if (prepared !== undefined) bindPreparedNodeVerification(verification.trustedVerification!, prepared);
+        if (context.signal.aborted || performance.now() >= deadlineAt) throw new DomainValidationError("TaskSpec expired during prepared artifact verification");
         return factory(context);
       } });
     if (execution.acceptance.accepted && (signal.aborted || performance.now() >= deadlineAt)) throw new DomainValidationError(`TaskSpec cancelled or total time budget exhausted before delivery; run: ${execution.runId}; artifact: ${execution.artifact.id}; candidate: ${execution.candidatePath}`);
@@ -115,7 +121,10 @@ export async function preflightDevelopmentTaskSpec(input: Omit<StartDevelopmentT
     observationPath = result.artifactPath;
     retain ||= !result.effectsSettled;
     if (!retain) {
-      try { detachNodeOfflineLinks(candidate.worktree.cwd, result.nodeInstallationLinks ?? []); }
+      try {
+        assertPreparedPreflight(result);
+        detachNodeOfflineLinks(candidate.worktree.cwd, result.nodeInstallationLinks ?? []);
+      }
       catch (error) {
         retain = true;
         throw new DomainValidationError(`preflight dependency cleanup refused; candidate retained at ${candidate.worktree.cwd}; observation: ${result.artifactPath}; ${error instanceof Error ? error.message : String(error)}`);

@@ -1,3 +1,5 @@
+import { assertPreparedNodeArtifacts, assertPreparedDelivery, capturePreparedDelivery, preparedNodeArtifactIdentity,
+  type PreparedNodeArtifacts, type DeliveryProof } from "./prepared-node-artifacts.js";
 import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
 import path from "node:path";
@@ -37,13 +39,44 @@ export interface TrustedVerificationEvidence {
   readonly candidateByteLength: number;
 }
 
-interface DescriptorState { readonly checkerSnapshots: readonly ExactSnapshot[]; }
+interface PreparedBinding { readonly artifacts: PreparedNodeArtifacts; readonly acceptedDelivery?: DeliveryProof; }
+interface DescriptorState { readonly checkerSnapshots: readonly ExactSnapshot[]; prepared?: PreparedBinding; }
 export interface TrustedVerificationObservation {
   readonly descriptor: TrustedVerificationDescriptor;
   readonly cwd: string;
   readonly candidate: ExactSnapshot;
 }
 const descriptors = new WeakMap<TrustedVerificationDescriptor, DescriptorState>();
+const preparedObservations = new WeakMap<TrustedVerificationObservation, { artifacts: PreparedNodeArtifacts; delivery: DeliveryProof }>();
+const checkedDeliveries = new WeakMap<TrustedVerificationEvidence, DeliveryProof>();
+
+/** Host-only live binding; serialized descriptors and preparation receipts grant nothing. */
+export function bindPreparedNodeVerification(descriptor: TrustedVerificationDescriptor, artifacts: PreparedNodeArtifacts, acceptedDelivery?: DeliveryProof): void {
+  const state = descriptors.get(descriptor);
+  if (state === undefined) fail("requires the original host-issued descriptor");
+  assertPreparedNodeArtifacts(artifacts);
+  if (acceptedDelivery !== undefined) assertPreparedDelivery(artifacts, acceptedDelivery);
+  if (state.prepared !== undefined && (state.prepared.artifacts !== artifacts ||
+      (state.prepared.acceptedDelivery !== undefined && acceptedDelivery !== undefined && state.prepared.acceptedDelivery !== acceptedDelivery))) fail("prepared binding cannot be replaced or refreshed");
+  const anchor = state.prepared?.acceptedDelivery ?? acceptedDelivery;
+  state.prepared = Object.freeze({ artifacts, ...(anchor === undefined ? {} : { acceptedDelivery: anchor }) });
+}
+export function getPreparedNodeVerification(descriptor: TrustedVerificationDescriptor, cwd: string): Readonly<PreparedBinding> | undefined {
+  const prepared = descriptors.get(descriptor)?.prepared;
+  if (prepared === undefined) return undefined;
+  if (preparedNodeArtifactIdentity(prepared.artifacts).candidatePath !== cwd) fail("prepared candidate does not match checker cwd");
+  assertPreparedNodeArtifacts(prepared.artifacts);
+  if (prepared.acceptedDelivery !== undefined) assertPreparedDelivery(prepared.artifacts, prepared.acceptedDelivery);
+  return prepared;
+}
+export function hasPreparedNodeVerification(descriptor: TrustedVerificationDescriptor, cwd: string): boolean {
+  return getPreparedNodeVerification(descriptor, cwd) !== undefined;
+}
+/** Only the original completed evidence object can carry a delivery proof. */
+export function lookupCheckedDeliveryProof(evidence: TrustedVerificationEvidence): DeliveryProof | undefined { return checkedDeliveries.get(evidence); }
+function candidateManifest(descriptor: TrustedVerificationDescriptor, prepared: boolean): SnapshotManifest {
+  return prepared ? { ...descriptor.snapshotManifest, excludePrefixes: [...(descriptor.snapshotManifest.excludePrefixes ?? []), "node_modules"] } : descriptor.snapshotManifest;
+}
 
 function fail(reason: string): never { throw new DomainValidationError(`trusted verification ${reason}`); }
 function equalArgs(left: readonly string[], right: readonly string[]): boolean {
@@ -139,23 +172,40 @@ export function beginTrustedVerification(
   if (root !== path.resolve(cwd)) fail("candidate cwd must be canonical and nonlinked");
   if (descriptor.checkerFiles.some((file) => file === root || file.startsWith(`${root}${path.sep}`))) fail("checker files must remain outside the candidate");
   if (!checkerUnchanged(descriptor)) fail("checker definition/dependency changed after issuance");
-  return { descriptor, cwd: root, candidate: captureExactSnapshot(root, descriptor.snapshotManifest, limits(descriptor)) };
+  const prepared = hasPreparedNodeVerification(descriptor, root) ? descriptors.get(descriptor)!.prepared : undefined;
+  const delivery = prepared === undefined ? undefined : capturePreparedDelivery(prepared.artifacts);
+  const observation = { descriptor, cwd: root, candidate: captureExactSnapshot(root, candidateManifest(descriptor, prepared !== undefined), limits(descriptor)) };
+  if (prepared !== undefined && delivery !== undefined) {
+    assertPreparedDelivery(prepared.artifacts, delivery);
+    preparedObservations.set(observation, { artifacts: prepared.artifacts, delivery });
+  }
+  return observation;
 }
 
 /** Compare ephemeral bytes, returning only safe metadata for the run artifact. */
 export function finishTrustedVerification(observation: TrustedVerificationObservation): TrustedVerificationEvidence {
   const { descriptor, cwd, candidate } = observation;
+  const prepared = preparedObservations.get(observation);
   let reason = "exact candidate and declared checker bytes unchanged";
   let ok = false;
   try {
-    const after = captureExactSnapshot(cwd, descriptor.snapshotManifest, limits(descriptor));
+    if (prepared !== undefined) {
+      if (!hasPreparedNodeVerification(descriptor, cwd)) fail("prepared binding disappeared during verification");
+      assertPreparedDelivery(prepared.artifacts, prepared.delivery);
+    }
+    const after = captureExactSnapshot(cwd, candidateManifest(descriptor, prepared !== undefined), limits(descriptor));
     if (!sameExactSnapshot(candidate, after)) reason = "candidate bytes or dependency scope changed during verification";
     else if (!checkerUnchanged(descriptor)) reason = "checker definition/dependency changed during verification";
-    else ok = true;
+    else {
+      if (prepared !== undefined) assertPreparedDelivery(prepared.artifacts, prepared.delivery);
+      ok = true;
+    }
   } catch (error) {
     reason = `exact snapshot unavailable: ${error instanceof Error ? error.message : String(error)}`;
   }
-  return Object.freeze({ schemaVersion: "exact-verification-v1", descriptorId: descriptor.id, ok, reason,
+  const evidence: TrustedVerificationEvidence = Object.freeze({ schemaVersion: "exact-verification-v1", descriptorId: descriptor.id, ok, reason,
     candidateFileCount: candidate.fileCount, candidateByteLength: candidate.byteLength });
+  if (ok && prepared !== undefined) checkedDeliveries.set(evidence, prepared.delivery);
+  return evidence;
 }
 

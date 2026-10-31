@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import cp, { spawnSync } from "node:child_process";
 import { syncBuiltinESMExports } from "node:module";
-import { access, mkdir, mkdtemp, rename, symlink, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rename, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { test } from "node:test";
 
@@ -53,4 +53,23 @@ test("a failed Git removal has one attempt and no recursive or prune fallback", 
   try { await assert.rejects(f.api.discardRetainedCandidate({ handle: f.handle }), /synthetic Git deletion refusal/); }
   finally { cp.spawnSync = original; syncBuiltinESMExports(); }
   assert.equal(removals, 1); assert.equal(prunes, 0); await access(f.candidatePath);
+});
+test("prepared retained ownership cannot be refreshed through the caller wrapper", async () => {
+  const f = await fixture();
+  const prepared = await import("../../../src/execution/prepared-node-artifacts.js");
+  await writeFile(path.join(f.candidatePath, "value.txt"), "before", "utf8");
+  await mkdir(path.join(f.candidatePath, "node_modules", "fixture"), { recursive: true });
+  await writeFile(path.join(f.candidatePath, "node_modules", "fixture", "index.js"), "owned dependency", "utf8");
+  const artifacts = prepared.issuePreparedNodeArtifacts({ sourceRepo: f.sourceRepo, candidatePath: f.candidatePath,
+    sourceRevision: f.sourceRevision, readOnlySharedStores: [] });
+  await writeFile(path.join(f.candidatePath, "value.txt"), "checked result", "utf8");
+  const binding = { artifacts, delivery: prepared.capturePreparedDelivery(artifacts) };
+  const handle = f.api.holdRetainedCandidate({ sourceRepo: f.sourceRepo, candidatePath: f.candidatePath, sourceRevision: f.sourceRevision }, binding);
+  await writeFile(path.join(f.candidatePath, "value.txt"), "later user data", "utf8");
+  binding.delivery = prepared.capturePreparedDelivery(artifacts);
+  assert.throws(() => f.api.assertRetainedCandidate(handle), /changed/i,
+    "a newly captured proof assigned to the caller wrapper must not refresh the held original proof");
+  await assert.rejects(f.api.discardRetainedCandidate({ handle }));
+  await access(path.join(f.candidatePath, "value.txt"));
+  assert.equal(await readFile(path.join(f.sourceRepo, "value.txt"), "utf8"), "before");
 });
