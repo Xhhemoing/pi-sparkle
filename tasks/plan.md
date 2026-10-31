@@ -10,7 +10,7 @@ The owner accepted [ADR-012](../docs/decisions/0012-three-pillar-architecture.md
 
 - #140 merges after exact-head required CI. Its runtime/test bytes equal `a5bc7e70`.
 - #138 is closed as superseded.
-- #103 stays on hold.
+- #103 is rebased and merged after #140: pi-sparkle's own 1,766 files exceed main's 1024-file whole-candidate cap, which blocks dogfooding.
 - Runtime advancement and real-task attempts 44–49 are authorized within the ADR-011 budgets.
 - Next usable result (stage A): one real Node task runs prepare → execute → check → apply on the advanced runtime.
 - Earlier checkpoint text below is retained evidence. It does not override this decision.

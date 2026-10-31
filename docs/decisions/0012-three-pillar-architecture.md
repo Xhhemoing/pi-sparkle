@@ -112,7 +112,11 @@ The following L1 work is unfrozen. It extends existing modules and adds no new s
   - Its runtime and test bytes equal `a5bc7e70`, which has 7/7 hosted CI and a matching Claude NON-BLOCKING review.
   - The incomplete Windows serial local gate is accepted as residual risk and stays on the checklist.
 - **#138** is closed as superseded.
-- **#103** stays on hold until a real task reaches the capacity limit.
+- **#103 (whole-candidate capacity 4096 files / 32 MiB) is needed for dogfooding.**
+  - pi-sparkle itself tracks 1,766 files. On main `616ff427`, `captureExactSnapshot(<pi-sparkle checkout>, {}, {maxFiles: 1024, ...})` refuses it with "file count limit exceeded". The same call with 4096 / 32 MiB succeeds.
+  - Main's unprepared retain/apply path uses the 1024 cap, so a real task on pi-sparkle's own backlog cannot be held or applied.
+  - #103 is rebased onto main after #140. Its conflicts are in `retained-candidate.ts` and its test. It then follows the safety-core path: focused checks, one Claude review, exact-head CI and the owner-delegated merge.
+  - Attempt 44 may use a smaller Node repository, so it does not wait for #103.
 - **Execution runtime.** Advancing it to the main that contains #140 is authorized after that main's CI succeeds.
 - **Real-task attempts 44–49** are authorized within ADR-011 limits:
   - at most US$5 reference cost per attempt and US$50 per week;
