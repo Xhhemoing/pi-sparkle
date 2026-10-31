@@ -81,7 +81,7 @@ Offline checks exercise the actual Pi 1.2/1.4 loaders, host dispatch, usage and 
 established by the offline loopback tests.
 
 `/skill:pi-sparkle` and `/sparkle` remain diagnostic overlays. The CLI is also
-available independently. See the [native integration plan](docs/superpowers/plans/2026-09-18-native-pi.md)
+available independently. See the [native integration plan](archive/superpowers/plans/2026-09-18-native-pi.md)
 for isolated write tasks, quality routing and automatic improvement scope.
 
 ### Run with the built-in fake executor (no API keys)
@@ -409,19 +409,19 @@ Real-provider execution is opt-in via `PI_*` environment variables and `--execut
 - [Architecture migration plan (中文)](docs/architecture-migration.md)
 - [Lightweight adaptive framework decision](docs/decisions/0009-lightweight-adaptive-framework.md)
 - [Host work queue, durable development CLI and continuous agent workflow](docs/development-agent-loop.md)
-- [Development control-plane implementation and verification](docs/reports/2026-10-15-development-control-plane.md)
+- [Development control-plane implementation and verification](archive/reports/2026-10-15-development-control-plane.md)
 - [Bounded native repair SDK and runnable offline demo](docs/native-development-loop.md)
-- [Architecture review and continuous development queue (2026-10-15)](docs/reports/2026-10-15-architecture-agent-loop.md)
+- [Architecture review and continuous development queue (2026-10-15)](archive/reports/2026-10-15-architecture-agent-loop.md)
 - [Status matrix](docs/status-matrix.md)
 - [Real-provider acceptance runbook](docs/preview-acceptance.md)
 - [Data dictionary](docs/data-dictionary.md)
-- [P0 technical re-verification (2026-08-26)](docs/reports/2026-08-26-p0-technical-reverification.md)
+- [P0 technical re-verification (2026-08-26)](archive/reports/2026-08-26-p0-technical-reverification.md)
 - [Security policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
 - [Development workflow](docs/development-workflow.md) · [Agent rules](AGENTS.md) · [Active tasks](tasks/)
-- [Developer Preview 0.1.0-preview.3 (2026-10-06)](docs/reports/2026-10-06-preview-declaration.md) · [Developer Preview 0.1.0-preview.2 (2026-10-01)](docs/reports/2026-10-01-preview-declaration.md)
-- [Developer Preview readiness](docs/reports/2026-08-20-developer-preview-readiness.md)
-- [SOTA acceptance (2026-08-24 loop, final)](docs/reports/2026-08-24-sota-r3-acceptance.md)
+- [Developer Preview 0.1.0-preview.3 (2026-10-06)](archive/reports/2026-10-06-preview-declaration.md) · [Developer Preview 0.1.0-preview.2 (2026-10-01)](archive/reports/2026-10-01-preview-declaration.md)
+- [Developer Preview readiness](archive/reports/2026-08-20-developer-preview-readiness.md)
+- [SOTA acceptance (2026-08-24 loop, final)](archive/reports/2026-08-24-sota-r3-acceptance.md)
 - [Foundational M0–M2 architecture specification](docs/specs/m0-m2-architecture.md)
 - [Adaptive work-loop spec](docs/specs/adaptive-agent-work-loop.md)
 - [ADRs](docs/decisions/)

@@ -1,6 +1,6 @@
 # 实验性对话宿主入口
 
-宿主使用 ConversationSession 处理结构化请求和会话内焦点，查询已有 controller 或调用 startDevelopmentTask。2026-10-20 的 P1 已新增显式宿主配置的 Pi 对话工具；当前验收状态见[实施记录](reports/2026-10-20-conversation-tools.md)。P2 的只读引用恢复已通过本地验收，见文末和[恢复记录](reports/2026-10-20-conversation-recovery.md)；自然语言任务配置仍是独立工作，question 请求本身只返回焦点上下文。
+宿主使用 ConversationSession 处理结构化请求和会话内焦点，查询已有 controller 或调用 startDevelopmentTask。2026-10-20 的 P1 已新增显式宿主配置的 Pi 对话工具；当前验收状态见[实施记录](../archive/reports/2026-10-20-conversation-tools.md)。P2 的只读引用恢复已通过本地验收，见文末和[恢复记录](../archive/reports/2026-10-20-conversation-recovery.md)；自然语言任务配置仍是独立工作，question 请求本身只返回焦点上下文。
 
 构建后可在仓库中通过实验性深路径使用：
 
@@ -118,7 +118,7 @@ const runRequest = {
 
 ## 跨会话只读恢复（P2）
 
-P2 提供显式保存引用和恢复专用会话；本地测试、独立评审与完整门禁证据见[恢复记录](reports/2026-10-20-conversation-recovery.md)。恢复不是重新执行：恢复实例始终拒绝 run-direct，即使旧 run 已完成、没有 runId 或换了 requestId。普通宿主执行实例仍由宿主单独配置与授权。
+P2 提供显式保存引用和恢复专用会话；本地测试、独立评审与完整门禁证据见[恢复记录](../archive/reports/2026-10-20-conversation-recovery.md)。恢复不是重新执行：恢复实例始终拒绝 run-direct，即使旧 run 已完成、没有 runId 或换了 requestId。普通宿主执行实例仍由宿主单独配置与授权。
 
 宿主在合适的交接点显式保存当前焦点。仓库构建后可使用实验性深路径；工具结果中的 focus 也可作为同形状输入：
 

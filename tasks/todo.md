@@ -15,4 +15,4 @@ See the [current checkpoint](plan.md#current-execution-checkpoint-2026-10-26), [
 - [ ] 协调者：完成R3资源类型和后续任务证据；I02 promotion仍需owner，零收益推断。
 - [ ] 协调者：旧direct-helper采用前修复kill-error/成功回收回归。
 - [ ] Owner：旧15任务比较、ADR010收益、R5和发布保留独立证据及授权。
-- [ ] 既有负责人：保留[早期未完成义务](archive/2026-10-21-pre-integration-checklist.md)，含隐私、隔离和生产批准。
+- [ ] 既有负责人：保留[早期未完成义务](../archive/tasks/2026-10-21-pre-integration-checklist.md)，含隐私、隔离和生产批准。

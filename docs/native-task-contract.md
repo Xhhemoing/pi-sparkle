@@ -43,4 +43,4 @@ Source references supplied by a caller remain provenance claims. They are not au
 - The existing parent coverage gate is not newly wired by this slice. Native structured input, parent-wide coverage, host acceptance and candidate application are distinct capabilities.
 - No live provider call, production apply, online adaptive selection, automatic promotion, credential change or state migration is introduced. Real-task quality/cost benefit remains unmeasured.
 
-See [the staged plan](superpowers/plans/2026-09-27-report-continuation.md) and [verification record](reports/2026-09-27-report-continuation.md).
+See [the staged plan](../archive/superpowers/plans/2026-09-27-report-continuation.md) and [verification record](../archive/reports/2026-09-27-report-continuation.md).

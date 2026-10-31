@@ -2,7 +2,7 @@
 
 > Current direction (2026-10-22): [ADR-010](decisions/0010-evidence-bound-changes.md) and the [active Phase 0 plan](../tasks/plan.md) supersede the implementation order below. Prior A delivery is retained; new B/general orchestration is deferred while its authorization, budget, cancellation, settlement and effect-reconciliation requirements remain binding. Historical entries are not new execution authority or current acceptance. No runtime or evidence record is deleted by this notice.
 
-本计划落实已接受的 [ADR-009](decisions/0009-lightweight-adaptive-framework.md)。M0–M7 是可拆分的工作切片，不是八个新模块、固定日期承诺或要求全部完成的发布清单。当前能力见[状态矩阵](status-matrix.md)，行为合同见[算法文档](architecture-algorithms.md)。计划首次提交仅含设计。后续 [M0-A 实施与验证](reports/2026-10-16-process-ownership.md) 已在用户明确授权推送后发布到 PR #60，远端 `e6f6a5b` 与原验证树完全一致；此前自动审批阻挡是历史状态。[本轮迁移证据](reports/2026-10-17-framework-migration.md)与[当前清单](../tasks/migration-todo.md)分别记录后续切片；这不表示完整 M0–M7 已验收。
+本计划落实已接受的 [ADR-009](decisions/0009-lightweight-adaptive-framework.md)。M0–M7 是可拆分的工作切片，不是八个新模块、固定日期承诺或要求全部完成的发布清单。当前能力见[状态矩阵](status-matrix.md)，行为合同见[算法文档](architecture-algorithms.md)。计划首次提交仅含设计。后续 [M0-A 实施与验证](../archive/reports/2026-10-16-process-ownership.md) 已在用户明确授权推送后发布到 PR #60，远端 `e6f6a5b` 与原验证树完全一致；此前自动审批阻挡是历史状态。[本轮迁移证据](../archive/reports/2026-10-17-framework-migration.md)与[当前清单](../tasks/migration-todo.md)分别记录后续切片；这不表示完整 M0–M7 已验收。
 
 ## 1. 最小交付与依赖
 
@@ -47,7 +47,7 @@ M1 的直接任务、基础小工具和相称检查构成首个用户可见增�
 
 ## 4. M2 边界与窄 SDK
 
-首个行为保持切片已将 `cli/main ↔ cli/pref` 的共享选项移至 `cli/options`；宿主无关 model-catalog 构建移至 `routing/model-catalog`；`privacy/state-layout` 下沉至 `persist/state-layout`，deletion/retention 保留应用级组合。路径搬迁保留同一导出值的转发，不改变记录字节与算法。[M2-A 证据](reports/2026-10-17-m2-boundary-cleanup.md)与全量集成验证分别记录；窄 SDK 仍待实施。
+首个行为保持切片已将 `cli/main ↔ cli/pref` 的共享选项移至 `cli/options`；宿主无关 model-catalog 构建移至 `routing/model-catalog`；`privacy/state-layout` 下沉至 `persist/state-layout`，deletion/retention 保留应用级组合。路径搬迁保留同一导出值的转发，不改变记录字节与算法。[M2-A 证据](../archive/reports/2026-10-17-m2-boundary-cleanup.md)与全量集成验证分别记录；窄 SDK 仍待实施。
 
 触点：[main](../src/cli/main.ts)、[pref](../src/cli/pref.ts)、[model-catalog](../src/cli/model-catalog.ts)、[native routing-catalog](../src/native/routing-catalog.ts)、[track loop](../src/track/loop.ts)、[state-layout](../src/privacy/state-layout.ts)、[package.json](../package.json)。继续执行 Pi 双边界与 live/adaptation 隔离，先冻结不得新增违规边，再逐项减少旧例外。
 

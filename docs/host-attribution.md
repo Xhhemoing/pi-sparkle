@@ -10,7 +10,7 @@ The returned `hostObservation` binds one logical task across repair attempts. At
 
 The existing run artifact store retains bounded references, not prompts or source text. Published invocation snapshots carry reported usage and preserve `pi`/`faux` provenance. Unknown usage or prices stay unknown. With attribution disabled, no collector or observation artifact is created. Actual results also expose additive task/logical-task identities; historical reconstructed results may lack them.
 
-[Implementation plan](superpowers/plans/2026-10-19-host-attribution.md) · [Verification record](reports/2026-10-19-staged-continuation.md). Offline dataset preparation is the separate read-only slice described below. Real-provider capability smoke is separate from model-quality benefit and production authorization.
+[Implementation plan](../archive/superpowers/plans/2026-10-19-host-attribution.md) · [Verification record](../archive/reports/2026-10-19-staged-continuation.md). Offline dataset preparation is the separate read-only slice described below. Real-provider capability smoke is separate from model-quality benefit and production authorization.
 
 ## Offline preparation
 
