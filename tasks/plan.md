@@ -2,9 +2,14 @@
 
 <a id="current-execution-checkpoint-2026-10-26"></a>
 
-## Current execution checkpoint (2026-10-30)
+### Current execution checkpoint (2026-10-30)
 
-Main is `02d7f395` after docs-only #131 and runtime #135; #122/#133 are confirmed merged through preserved ancestry. The owner reviewed the original 1 / 21 conflict hunks and #133 admission rule, and authorized these merges. #135's current `feb5e03d` passed all seven hosted jobs and a matching Claude NON-BLOCKING incremental review, after the full939b99c3 review. Runtime/test sources stayed unchanged during the documentation split. Post-merge primary CI41092486892 passed all five jobs; separate recovery41092487077 passed both jobs; the dedicated execution runtime remains280882b4. Phase0 is adopted; Phase1, later-task outcomes and ADR-010 benefit evidence remain incomplete. Historical43 attempts/12 correct deliveries and missing fees/times stay separate from the new ledger starting at44. No paid task, original Soul apply, release, resource promotion or historical capability resurrection occurred.
+#### 2026-10-31 useful PR consolidation (integration branch)
+- Scope: integrate #132 offline Node preparation and #103 whole-candidate capacity from current main; preserve explicit candidate/apply/settlement boundaries. Non-goals: #68's superseded host/routing/work-store publication stack and #102's broader R3 promotion delegation are not adopted in this runtime slice.
+- Acceptance: actual preflight/start-task-spec/task-session/retained-candidate path compiles and focused tests pass; serial safety gate and applicable offline probes are recorded in the integration PR. Owner retains merge/adoption and human frozen-interface review.
+- Result: #132 and #103 merged onto `integrate/useful-pr-consolidation-20261031`; #68 is rejected as overlapping/frozen broad runtime replacement, #102 is retained parked because its live host-grant/promotion surface is outside this execution-chain consolidation.
+
+Main is `02d7f395` after docs-only #131 and runtime #135; #122/#133 are confirmed merged through preserved ancestry.
 
 ### Branch consolidation requested by owner (2026-10-29)
 
