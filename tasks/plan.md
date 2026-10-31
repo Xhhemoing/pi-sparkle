@@ -4,6 +4,17 @@
 
 This documentation slice clarifies the current CLI/Pi extension → TaskSpec/preparation → Native/Pi execution → independent check → retained candidate → same-session explicit apply/discard chain, and separates optional project queue/offline improvement proposals from the core path. It updates the README and concise architecture/roadmap entry points, with static pointers from the legacy HTML guides; no runtime, authorization, package, or historical evidence is changed. The roadmap is proposed sequencing, not blanket implementation approval; current adoption remains governed by this plan and the ADRs.
 
+## Owner decision: three-pillar architecture (2026-10-31)
+
+The owner accepted [ADR-012](../docs/decisions/0012-three-pillar-architecture.md) and delegated these decisions. Sequencing lives in the [roadmap](../docs/roadmap.md).
+
+- #140 merges after exact-head required CI. Its runtime/test bytes equal `a5bc7e70`.
+- #138 is closed as superseded.
+- #103 stays on hold.
+- Runtime advancement and real-task attempts 44–49 are authorized within the ADR-011 budgets.
+- Next usable result (stage A): one real Node task runs prepare → execute → check → apply on the advanced runtime.
+- Earlier checkpoint text below is retained evidence. It does not override this decision.
+
 <a id="current-execution-checkpoint-2026-10-26"></a>
 
 ## Current execution checkpoint (2026-10-31)
