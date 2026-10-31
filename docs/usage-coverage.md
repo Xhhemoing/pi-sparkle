@@ -8,4 +8,4 @@ Each outcome and the overall summary distinguish reported, missing and invalid i
 
 The function does not fetch prices, write telemetry, mutate input rows or change routing. Its TypeScript result is readonly; it is not a recursively frozen runtime object. Only recorded per-invocation pricing is used, including its catalog version.
 
-Verification: `pnpm test --test-concurrency=1 test/unit/telemetry/usage-coverage.test.ts test/unit/telemetry/usage-aggregate.test.ts`. Current evidence and remaining integration checks are in [the staged record](reports/2026-10-19-staged-continuation.md).
+Verification: `pnpm test --test-concurrency=1 test/unit/telemetry/usage-coverage.test.ts test/unit/telemetry/usage-aggregate.test.ts`. Current evidence and remaining integration checks are in [the staged record](../archive/reports/2026-10-19-staged-continuation.md).

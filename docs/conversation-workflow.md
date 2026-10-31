@@ -1,6 +1,6 @@
 # 对话入口与长期任务衔接
 
-这是在现有四职责架构上提出的交互接线方案。2026-10-18 的 [C1/C2-A 宿主切片](conversation-host.md)已补上结构化查询/直接任务、会话内焦点与 M4-A 本次表达偏好；当前结果见[验证记录](reports/2026-10-18-conversation-presentation.md)。P1 已补显式宿主配置的扩展工具接线，验收状态见[当前记录](reports/2026-10-20-conversation-tools.md)；P2 已完成本地验收的[只读引用恢复](reports/2026-10-20-conversation-recovery.md)，自然语言配置仍待后续。用户希望把命令内化到对话、同时容纳小任务和长期项目；本文说明具体行为与后续实施条件，**不表示自然语言路由已完成实现**。源码核对基线为 PR #60 `14a1164`。
+这是在现有四职责架构上提出的交互接线方案。2026-10-18 的 [C1/C2-A 宿主切片](conversation-host.md)已补上结构化查询/直接任务、会话内焦点与 M4-A 本次表达偏好；当前结果见[验证记录](../archive/reports/2026-10-18-conversation-presentation.md)。P1 已补显式宿主配置的扩展工具接线，验收状态见[当前记录](../archive/reports/2026-10-20-conversation-tools.md)；P2 已完成本地验收的[只读引用恢复](../archive/reports/2026-10-20-conversation-recovery.md)，自然语言配置仍待后续。用户希望把命令内化到对话、同时容纳小任务和长期项目；本文说明具体行为与后续实施条件，**不表示自然语言路由已完成实现**。源码核对基线为 PR #60 `14a1164`。
 
 ## 1. 已有基础与缺口
 
@@ -83,4 +83,4 @@ CLI 保留为脚本、排障和高级入口。对话与 CLI 调同一应用能�
 
 这些是建议实施切片，不是本次已运行的测试。与 [M1 轻任务、M3 动态纠偏、M6 项目推进](architecture-migration.md) 对齐；复用现有模块和 [A1/A3/A9](architecture-algorithms.md) 的约束。首轮优先 C1/C2，再用真实长线对话验证 C3/C4，不把全部记忆与调度能力设为日常使用的前提。
 
-P2 的精确实现边界见[恢复计划](superpowers/plans/2026-10-20-conversation-recovery.md)：显式宿主引用、fresh facts 与新焦点 generation；恢复实例不获得执行权限，不自动重放，队列与直接任务的身份映射分别声明。当前验收以[恢复记录](reports/2026-10-20-conversation-recovery.md)为准。
+P2 的精确实现边界见[恢复计划](../archive/superpowers/plans/2026-10-20-conversation-recovery.md)：显式宿主引用、fresh facts 与新焦点 generation；恢复实例不获得执行权限，不自动重放，队列与直接任务的身份映射分别声明。当前验收以[恢复记录](../archive/reports/2026-10-20-conversation-recovery.md)为准。

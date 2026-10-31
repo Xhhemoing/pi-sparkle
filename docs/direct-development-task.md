@@ -233,9 +233,9 @@ scripted executors, with no provider credentials:
 pnpm test -- --test-concurrency=1 test/integration/development/start-task.test.ts
 ```
 
-Implementation plan and verification: [M1-A task record](superpowers/plans/2026-10-17-direct-development-task.md).
-M1-B implementation and current checks: [latest direction plan](superpowers/plans/2026-10-18-direction-completion.md)
-and [verification](reports/2026-10-18-direction-completion.md). Task-local context
+Implementation plan and verification: [M1-A task record](../archive/superpowers/plans/2026-10-17-direct-development-task.md).
+M1-B implementation and current checks: [latest direction plan](../archive/superpowers/plans/2026-10-18-direction-completion.md)
+and [verification](../archive/reports/2026-10-18-direction-completion.md). Task-local context
 selection is described below; SDK exports and packaged consumers have separate migration evidence.
 
 ## Select task-local source context
@@ -281,7 +281,7 @@ excluded. Conversation-host registration accepts this same host-only input and
 snapshots it; model requests cannot supply their own context selection.
 
 M1-C implementation and verification are recorded in the
-[staged continuation report](reports/2026-10-19-staged-continuation.md), including
+[staged continuation report](../archive/reports/2026-10-19-staged-continuation.md), including
 actual final-prompt tests and the separately authorized two-case provider smoke.
 
 

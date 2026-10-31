@@ -5,7 +5,7 @@
 validation only (115/115), not runner execution or seal verification. Custody
 requires complete materials, an exposure ruling, SM95 key verification, price
 binding, preregistration and runner readiness. See the
-[current handoff](../docs/reports/2026-09-18-delivery-gate-unblock.md).
+[current handoff](../archive/reports/2026-09-18-delivery-gate-unblock.md).
 
 ## Census
 

@@ -10,4 +10,4 @@ Archived records retain their IDs, exact inputs, results and history. `get`, `li
 
 Actual historical-source tests cover the ledger-mediated algorithm at commit `e6f6a5b`: when schema 2 publishes first, a previously constructed old instance refuses preparation and claim; when schema 1 publishes first, the new mode refuses and preserves its running record. This does not isolate arbitrary old hosts or the earlier controller that ran checks outside the ledger. Windows descendant containment, power-loss qualification and shared live-root migration remain separate.
 
-[Implementation plan](superpowers/plans/2026-10-19-check-archive.md) · [Verification record](reports/2026-10-19-staged-continuation.md).
+[Implementation plan](../archive/superpowers/plans/2026-10-19-check-archive.md) · [Verification record](../archive/reports/2026-10-19-staged-continuation.md).

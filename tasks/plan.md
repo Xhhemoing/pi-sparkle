@@ -122,7 +122,7 @@ Post-merge main checks passed at #128 ([CI](https://github.com/Xhhemoing/pi-spar
 
 Historical canonical summary recovered from tool output (not a live rebuilt ledger): 43 attempts (22 Pi /21 Soul),12 correct deliveries,20 interventions,0 escaped defects observed. Original Soul is not applied by this work. Complete reference fees are S07 US$0.1080876, P09-a2 US$0.1455084, S10-a2 US$0.1843592 and S11-a1 US$0.1280292; the other39 remain unknown. The immutable canonical fee floor is US$2.93910152; P12's separately rederived partial observation addsUS$0.2559648, giving a combined observed floorUS$3.19506632. This is not total/gateway billing; the initial snapshot discrepancy is retained in [I-12](issues.md#i-12--p12-partial-cost-observation-and-immutable-first-snapshot). Authoring is missing for31 attempts and review for30; measured scopes differ. P02/P10/P11/P12 manual salvage does not relabel their original failures as correct deliveries. Paired arms are attempts, not distinct logical tasks. Speed benefit remains unmeasured.
 
-The first two R2 reviews are retained in the [evidence archive](archive/2026-10-26-r1-r3-evidence.md#earlier-verification-and-review-snapshots); review30 has the retained public [#117](https://github.com/Xhhemoing/pi-sparkle/pull/117) and historical-output provenance; original private ledger gaps remain in I-15. The historical review40 used the actual launch sequence and separates old P02 backfill from its newest10 attempts. Next review after this closeout: attempt50 or weekly. Refresh the private summary before every paid admission; do not use this checkpoint as a live budget calculation.
+The first two R2 reviews are retained in the [evidence archive](../archive/tasks/2026-10-26-r1-r3-evidence.md#earlier-verification-and-review-snapshots); review30 has the retained public [#117](https://github.com/Xhhemoing/pi-sparkle/pull/117) and historical-output provenance; original private ledger gaps remain in I-15. The historical review40 used the actual launch sequence and separates old P02 backfill from its newest10 attempts. Next review after this closeout: attempt50 or weekly. Refresh the private summary before every paid admission; do not use this checkpoint as a live budget calculation.
 
 ### Retained P10/S11 candidate handoff
 
@@ -225,11 +225,11 @@ The essential goal is to make Pi deliver real changes more correctly and efficie
 
 ### Retained evidence and unfinished obligations
 
-- [Verbatim R1–R3 evidence](archive/2026-10-26-r1-r3-evidence.md) preserves old checkpoints, dated records, failed gates and unknowns. Its dated next steps and old permissions are historical.
-- [Phase 1 plan](archive/2026-10-25-phase1-plan.md) and [exit traceability](../docs/evidence/phase1-exit.md): TS#83/Rust#85 are adopted; B1/B2 resume remains deferred until real-task need under its original trust/budget/counterexample criteria. Phase 1 completion is the owner's decision.
-- [Whole-plan obligations](archive/2026-10-25-pre-maintenance-plan.md#whole-plan-completion-obligations): #68 waits for owner decision; #72 remains deferred. Fix/retest the old direct helper kill-error/successful-reap regression before adoption.
+- [Verbatim R1–R3 evidence](../archive/tasks/2026-10-26-r1-r3-evidence.md) preserves old checkpoints, dated records, failed gates and unknowns. Its dated next steps and old permissions are historical.
+- [Phase 1 plan](../archive/tasks/2026-10-25-phase1-plan.md) and [exit traceability](../docs/evidence/phase1-exit.md): TS#83/Rust#85 are adopted; B1/B2 resume remains deferred until real-task need under its original trust/budget/counterexample criteria. Phase 1 completion is the owner's decision.
+- [Whole-plan obligations](../archive/tasks/2026-10-25-pre-maintenance-plan.md#whole-plan-completion-obligations): #68 waits for owner decision; #72 remains deferred. Fix/retest the old direct helper kill-error/successful-reap regression before adoption.
 - The old15-task comparison and ADR-010 targets remain unproven: defects−50%, correct delivery within−3 points, cost/correct delivery≤1.3x need matched data. R5 benchmark/publication/macOS/containment/onboarding retain owner approval.
-- Preserve [earlier duties](archive/2026-10-21-pre-integration-checklist.md): F6, S0-min, R10/R11, PR#36 artifacts, privacy, containment and production approval. Unexplained Windows/Git/TS/Rust anomalies remain in the archive.
+- Preserve [earlier duties](../archive/tasks/2026-10-21-pre-integration-checklist.md): F6, S0-min, R10/R11, PR#36 artifacts, privacy, containment and production approval. Unexplained Windows/Git/TS/Rust anomalies remain in the archive.
 - `pnpm status` generates ignored STATUS; CI snapshots are generation-time observations only and never authorize work.
 
 ### Owner decisions
@@ -243,11 +243,11 @@ The essential goal is to make Pi deliver real changes more correctly and efficie
 
 ### R0 preparation candidate (2026-10-25)
 
-Historical evidence moved [verbatim to the archive](archive/2026-10-26-r1-r3-evidence.md#r0-preparation-candidate-2026-10-25).
+Historical evidence moved [verbatim to the archive](../archive/tasks/2026-10-26-r1-r3-evidence.md#r0-preparation-candidate-2026-10-25).
 
 ### R0.6 reference-price integration repair (2026-10-26)
 
-Historical evidence moved [verbatim to the archive](archive/2026-10-26-r1-r3-evidence.md#r06-reference-price-integration-repair-2026-10-26).
+Historical evidence moved [verbatim to the archive](../archive/tasks/2026-10-26-r1-r3-evidence.md#r06-reference-price-integration-repair-2026-10-26).
 
 ### Readiness-delta verification classification (2026-10-31)
 

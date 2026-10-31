@@ -377,8 +377,8 @@ Global log size/foreign corruption may therefore refuse an own-run projection.
 No child-run cost rollup, candidate location, new storage, bill reconciliation,
 provider authorization, or host acceptance is introduced.
 
-[Plan](superpowers/plans/2026-10-01-ps06-status-projection.md) ·
-[Verification and open gates](reports/2026-10-02-ps06-status-projection.md).
+[Plan](../archive/superpowers/plans/2026-10-01-ps06-status-projection.md) ·
+[Verification and open gates](../archive/reports/2026-10-02-ps06-status-projection.md).
 
 ## Unblocking and deletion (continued)
 
@@ -447,10 +447,10 @@ episode files remain for manual lock cleanup and a retry.
 
 Honest gaps that remain after the Round 2 cascade, Round 3 disclosure work,
 and the Loop 2 Round 1 invocation-lock fix
-([Round 1](reports/2026-08-24-sota-isolation-privacy.md),
-[Round 2](reports/2026-08-24-sota-r2-isolation.md),
-[Round 3](reports/2026-08-24-sota-r3-isolation.md),
-[Loop 2 R1](reports/2026-08-24-sota-loop2-isolation.md) reports); none of
+([Round 1](../archive/reports/2026-08-24-sota-isolation-privacy.md),
+[Round 2](../archive/reports/2026-08-24-sota-r2-isolation.md),
+[Round 3](../archive/reports/2026-08-24-sota-r3-isolation.md),
+[Loop 2 R1](../archive/reports/2026-08-24-sota-loop2-isolation.md) reports); none of
 these are covered by the claims above:
 
 - **Episode text still physically survives inside attached runs** until each

@@ -3,7 +3,7 @@
 - Date: 2026-09-21
 - Status: **Accepted — removal and implementation authorized; migration/live-provider/production-apply gates remain separate**
 - Supersedes: SHA-256-dependent portions of active plans/specs only after acceptance; historical evidence remains authoritative for the behavior it recorded.
-- Related task: [`TASK-20260921-remove-sha256`](../superpowers/plans/2026-09-21-remove-sha256.md)
+- Related task: [`TASK-20260921-remove-sha256`](../../archive/superpowers/plans/2026-09-21-remove-sha256.md)
 
 ## Decision request
 

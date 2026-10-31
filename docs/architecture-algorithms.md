@@ -321,4 +321,4 @@ source 或检查器绑定变化后旧证据失效；精确字节比较不是 OS 
 本次只接受并记录设计；产品验收必须逐项附真实测试、运行身份与失败证据，不以本文复述替代。
 
 实施顺序、可继续拆分的 M0–M7 切片及 reader 先行/单 writer/回滚条件见[迁移计划](architecture-migration.md)。
-文档验证与交接记录见[本次工作报告](reports/2026-10-16-current-architecture-guide.md)；当前可用性以[支持状态](status-matrix.md)为准。
+文档验证与交接记录见[本次工作报告](../archive/reports/2026-10-16-current-architecture-guide.md)；当前可用性以[支持状态](status-matrix.md)为准。

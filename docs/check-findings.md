@@ -36,8 +36,8 @@ permission to apply or repair. Existing native repair, cancellation and effect
 settlement rules remain authoritative. Descriptor-free checks and untrusted or
 interrupted evidence do not acquire stronger observations.
 
-[Plan](superpowers/plans/2026-10-19-check-findings.md) and
-[current verification](reports/2026-10-19-staged-continuation.md).
+[Plan](../archive/superpowers/plans/2026-10-19-check-findings.md) and
+[current verification](../archive/reports/2026-10-19-staged-continuation.md).
 
 ## Optional host analysis
 

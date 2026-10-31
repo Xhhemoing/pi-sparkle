@@ -136,7 +136,7 @@ pnpm cli develop review --queue addition-demo --project "$SPARKLE_PROJECT" --sta
 pnpm cli develop accept --queue addition-demo --project "$SPARKLE_PROJECT" --state-root "$SPARKLE_STATE" --item implement-addition --json
 ```
 
-`accept` 会重新验证绑定的真实证据，输出 `sourceApplied: false`。它接受当前候选，没有将代码集成到原仓。Host 仍需审查最终差异，完成独立评审与适用 gate，再通过已经授权的 Git/PR 流程显式集成；`develop` 没有 apply 子命令。控制器使用 trusted verification，native registration 仍拒绝仅有序列化证据的候选。2026-10-15 的 TA 切片已新增显式 native SDK apply：宿主从自己的固定定义签发新鲜的进程内可信 descriptor，覆盖完整候选，并在重新运行真实检查后核对精确 Git tree/实际字节。复制或反序列化 descriptor 不能取得权限；见 [TA 计划](superpowers/plans/2026-10-15-trusted-apply-binding.md) 和 [集成演示](../examples/development-integration-demo.mjs)。它不自动 accept/apply，也不关闭 production/R10/R11 条件。
+`accept` 会重新验证绑定的真实证据，输出 `sourceApplied: false`。它接受当前候选，没有将代码集成到原仓。Host 仍需审查最终差异，完成独立评审与适用 gate，再通过已经授权的 Git/PR 流程显式集成；`develop` 没有 apply 子命令。控制器使用 trusted verification，native registration 仍拒绝仅有序列化证据的候选。2026-10-15 的 TA 切片已新增显式 native SDK apply：宿主从自己的固定定义签发新鲜的进程内可信 descriptor，覆盖完整候选，并在重新运行真实检查后核对精确 Git tree/实际字节。复制或反序列化 descriptor 不能取得权限；见 [TA 计划](../archive/superpowers/plans/2026-10-15-trusted-apply-binding.md) 和 [集成演示](../examples/development-integration-demo.mjs)。它不自动 accept/apply，也不关闭 production/R10/R11 条件。
 
 例如 B 依赖 A：A 候选 accepted 后，B 可能出现在 advisory `next` 中；`run` 仍会在原仓当前提交的隔离检查视图中运行 A 的前置验收。Host 应先显式集成 A 并保存新的源提交，再推进 B。仅有 A 候选的成功记录不能替代原仓检查。原仓变化还必须保留原 claim 基线的祖先关系和保护文件不变；改验收定义属于新的 host 决策。若前置功能原本已在原仓成立，无需制造无意义提交，仍以当前源检查为准。
 
@@ -173,9 +173,9 @@ node examples/development-demo.mjs
 node examples/development-batch-demo.mjs
 ```
 
-该演示用脚本先写错加法、再根据真实失败反馈修复。它断言检查 exit 1 → 0、`ready-for-review` → 显式 accept、源文件与源提交不变，并输出保留的候选和证据位置。输出标记 `mode: "offline-scripted"`、`liveModelCalls: 0`、`supportsLiveEffectivenessClaim: false`。`descriptiveEvaluation` 统计实际尝试、验收和用时；费用来源为 unknown、`costCoverage` 为零，空成本小计不是零费用测量。这验证控制器和检查链路，不提供真实模型成功率或成本改善证据；见 [演示执行记录](reports/2026-10-15-development-demo.md)。
+该演示用脚本先写错加法、再根据真实失败反馈修复。它断言检查 exit 1 → 0、`ready-for-review` → 显式 accept、源文件与源提交不变，并输出保留的候选和证据位置。输出标记 `mode: "offline-scripted"`、`liveModelCalls: 0`、`supportsLiveEffectivenessClaim: false`。`descriptiveEvaluation` 统计实际尝试、验收和用时；费用来源为 unknown、`costCoverage` 为零，空成本小计不是零费用测量。这验证控制器和检查链路，不提供真实模型成功率或成本改善证据；见 [演示执行记录](../archive/reports/2026-10-15-development-demo.md)。
 
-批次演示分别修复两个独立任务，再用 `reviewDevelopmentCandidate` 读取每次失败与成功的历史。它断言两个候选均待审、accepted 数为零、review 前后状态与原仓内容不变，并保留候选与证据；见 [批次演示记录](reports/2026-10-15-development-batch-demo.md)。两次独立执行均通过，仍属于脚本机制验证。
+批次演示分别修复两个独立任务，再用 `reviewDevelopmentCandidate` 读取每次失败与成功的历史。它断言两个候选均待审、accepted 数为零、review 前后状态与原仓内容不变，并保留候选与证据；见 [批次演示记录](../archive/reports/2026-10-15-development-batch-demo.md)。两次独立执行均通过，仍属于脚本机制验证。
 
 CLI 的 `--executor fake` 是另一种机制测试：不调用 LLM，也不写文件，只能用 host 检查确认已有候选内容。失败的实现不会因 fake 模式得到修复。脚本演示与 CLI fake 都不能充当真实模型实验。
 
