@@ -1,27 +1,29 @@
 # Active implementation plan
 
-## Documentation scope (2026-10-31)
+## Adopted #137 documentation scope (2026-10-31)
 
 This documentation slice clarifies the current CLI/Pi extension → TaskSpec/preparation → Native/Pi execution → independent check → retained candidate → same-session explicit apply/discard chain, and separates optional project queue/offline improvement proposals from the core path. It updates the README and concise architecture/roadmap entry points, with static pointers from the legacy HTML guides; no runtime, authorization, package, or historical evidence is changed. The roadmap is proposed sequencing, not blanket implementation approval; current adoption remains governed by this plan and the ADRs.
 
 <a id="current-execution-checkpoint-2026-10-26"></a>
 
-## Current execution checkpoint (2026-10-30)
+## Current execution checkpoint (2026-10-31)
 
-Main is `02d7f395` after docs-only #131 and runtime #135; #122/#133 are confirmed merged through preserved ancestry. The owner reviewed the original 1 / 21 conflict hunks and #133 admission rule, and authorized these merges. #135's current `feb5e03d` passed all seven hosted jobs and a matching Claude NON-BLOCKING incremental review, after the full939b99c3 review. Runtime/test sources stayed unchanged during the documentation split. Post-merge primary CI41092486892 passed all five jobs; separate recovery41092487077 passed both jobs; the dedicated execution runtime remains280882b4. Phase0 is adopted; Phase1, later-task outcomes and ADR-010 benefit evidence remain incomplete. Historical43 attempts/12 correct deliveries and missing fees/times stay separate from the new ledger starting at44. No paid task, original Soul apply, release, resource promotion or historical capability resurrection occurred.
+Main is `ed6cddc9` after adopted #131/#135/#136/#137/#132; #122/#133 are confirmed merged through preserved ancestry and #134/#119 were already adopted. #132f876a334 passed five current hosted checks and genuine matching Claude NON-BLOCKING; its runtime/schema/tests/dependency inputs equal3a49f717, whose frozen JSON implementation/pinning the owner explicitly reviewed and approved. The latest parent sync preserved the separate architecture/roadmap documentation without a runtime conflict. Post-merge ed6 main CI41185151603 passed all five jobs; every later main result is observed separately. Execution-runtime remains280882b4; no runtime installation/cutover or release occurred.
+
+Fixed offline Node preparation and explicit host-limit propagation are now adopted code. Phase0 remains adopted; live use, later-task outcomes, the old15-task comparison and ADR010 benefit evidence remain incomplete. Historical43 attempts/12 correct deliveries and unknown fees/times stay separate from the new-only ledger starting44. No paid real task, original Soul apply, resource promotion or historical capability resurrection occurred. CLI-review authorization is separate from real-task admission.
 
 ### Branch consolidation requested by owner (2026-10-29)
 
-- Result: reconcile every local and origin branch, merge eligible candidates and maintain one accurate operational queue. #134/#119 and #131/#122/#133/#135 are adopted. Preserve genuinely unadopted/frozen code and unrelated dirty worktrees; no branch/worktree deletion.
+- Result: reconcile every local and origin branch, merge eligible candidates and maintain one accurate operational queue. #134/#119 and #131/#122/#133/#135/#136/#137/#132 are adopted. Preserve genuinely unadopted/frozen code and unrelated dirty worktrees; no branch/worktree deletion.
 - Dependencies: actual remote heads/CI, ancestry and patch absorption, scoped independent review and required human interface/conflict review. A non-ancestor ref alone does not require re-merging historical content.
-- Acceptance: every branch tip is adopted, superseded with evidence or retained with a concrete condition. No failed/incomplete candidate is merged merely to empty the branch list. The latest read-only inventory found no additional active branch outside #132/#103; #68/#102 remain parked. Original inventory and failures stay retained in I16.
+- Acceptance: every branch tip is adopted, superseded with evidence or retained with a concrete condition. No failed/incomplete candidate is merged merely to empty the branch list. The refreshed inventory confirms132 adopted and separate138 unadopted with103. #68/#102 were closed unmerged outside this merge sequence; their local histories remain. Original inventory and failures stay retained in I16.
 - Current documentation scope: reconcile adoption prerequisites and unfinished lanes, retain failed/unknown evidence, and clarify author/materialize semantics and the execute paragraph noted by Claude. No runtime, authorization or frozen-interface change. Validate with `pnpm workflow:check`, `git diff --check`, relevant links/content checks, independent read-only review and current hosted CI; generate ignored `pnpm status` as observation only.
 
 | Remaining branch group | Verified state / condition |
 |---|---|
-| #132 `3a49f717` | The preflight first-request/trim repair passed47focused, type/lint, independent affected review and a current actual offline-pnpm CLI preflight. It follows fully reviewedcf72; schema/authoring fields stay unchanged. Historical0e full gate/security andcf72 CI/real CLI proofs are retained, not relabeled as new-head full acceptance. New full gate stays serial after103; current CI/Claude and human frozen-interface review remain open. |
-| #103 `1dd83a8c` | Retain95/95 focused results atb80277e6, before the preparation merge. At1dd83a8c the explicit-limits large-source case1/1 passed; independent preparation/capacity seam review found no blocker. All seven current1dd hosted jobs passed. Matching Claude NON-BLOCKING is posted. One full integrated local gate is running; applicable probes remain. The owner's prior hold on adoption is unchanged. |
-| #102 and #68 | Existing parked scope, compatibility and authorization gaps remain; no new branch drift or freeze lifting. |
+| #132 | Adopted ated6cddc9 after currentf876 CI/Claude and explicit owner frozen-interface review. Current hosted full-suite evidence plus impact-scoped local checks applies; no f876 local full-gate pass is claimed. Observe new main CI before any runtime advancement. |
+| #103 `1dd83a8c` | Full local gate FAILED:5024pass/1fail/2cancelled/58skip; build not reached. Three original timed cases replayed unchanged and passed13/13+18/18+1/1, security26 and separate build passed. Retain both outcomes; full gate is not relabeled and owner hold remains. Prior95focused belongs tob802 before preparation integration. |
+| #138; #102/#68 | Separate138 includes held103 and is unadopted: body records31focused failures and a600s incomplete gate despite seven hosted checks. Its scope/review conditions are separate. #68/#102 were closed unmerged and remote refs removed in another conversation; local refs remain. This chat neither performed nor inferred permission for those removals. |
 | Historical branches | I16 distinguishes absorbed/superseded history from genuinely unadopted code. Do not resurrect the old persistent work flow, learning modules or routing dataset through a bulk merge. |
 | Other worktrees | The reviewed rebases are committed/adopted. Preserve the unrelated18-path host-check draft, private evidence and old dirty snapshots; no deletion/archival. |
 
@@ -29,13 +31,13 @@ Historical dated sections below retain their original evidence. This checkpoint 
 
 ### Parallel lanes and continuous progress (2026-10-29)
 
-The template/safety adoption lane is complete at02d7f395; its post-merge primary CI passed five jobs and recovery passed both jobs. Preparation adoption and current main verification still precede execution-runtime advancement. Remaining independent work uses ordinary Git worktrees under `E:/Project/pi-sparkle/.agent_workspace/dev-worktrees/` so Codex thread archival cannot remove them.
+Template/safety adoption at02d7f395 and preparation adoption ated6cddc9 are complete. The former main CI/recovery passed; the latter post-merge CI remains to observe before execution-runtime advancement. Remaining independent work uses ordinary Git worktrees under `E:/Project/pi-sparkle/.agent_workspace/dev-worktrees/` so Codex thread archival cannot remove them.
 
 | Lane | Worktree / branch | Next step | Waits on |
 |---|---|---|---|
-| C preparation | #1323a49f717 | Complete new-head serial acceptance/CI/Claude, then human review/adoption | running103gate; new-head checks; human review |
-| E capacity acceptance | #1031dd83a8c | Finish integrated gate/applicable probes; retain original failures and completed CI/Claude evidence | one running full gate; owner adoption hold |
-| D records | canonical private root | Preserve historical43, reconcile new-only ledger from44 before any admission | preparation adoption/current main CI and existing admission |
+| C preparation | #132 adopted | Observe post-merge CI; preserve source/runtime/use distinctions | main CI and future separately admitted use |
+| E held integration | #103/#138 | Preserve failed/incomplete full acceptance and scoped replay evidence; no new source defect reproduced | stable complete acceptance and owner hold/scope decision |
+| D records | canonical private root | Preserve historical43, reconcile new-only ledger from44 before any admission | current main CI and future separately authorized use/admission |
 | A status | coordinator docs worktree | Reconcile existing plan/issues/todo and workflow clarifications together | content checks/read-only review/hosted CI |
 
 Rules:
@@ -47,12 +49,12 @@ Rules:
 
 ### Acceptance repair under continued owner instruction (2026-10-30)
 
-- Next usable result: adopt fixed offline Node preparation through actual preflight and unchanged task-run/lab reconstruction, preserving explicit limits. Template/safety prerequisites are adopted. #103 capacities remain excluded; historical attempts are not relabeled.
+- Adopted result: fixed offline Node preparation reaches actual preflight and unchanged task-run/lab reconstruction with explicit limits. #103 capacities remain excluded. The next separately admitted observation is actual runtime use and later-task evidence, not a historical-attempt relabel.
 - The coordinator owns integration/records/full checks. Lab propagation is implemented: host template limits survive history, exact checker reconstruction and full actual-request token/UTF8/pre-dedup file-count checks. Legacy inputs keep defaults; fixed nodeOffline preparation requires complete explicit limits.
 - At0e4b6d78 the complete serial gate passed after focused RED/GREEN repairs; the process-lifetime sleep request was released. The earlier b332 exit-1/no-summary/build-not-reached remains retained. Windows sleep24,552,170.498ms explains wall time, not final termination cause.
 - Actual source CLI preflight repeated at3a49f717 exited0 with real pnpm10.17.1 offline installation of copied cached ms2.1.3, candidate-local resolution and the exact expected baseline failure. Effects settled/candidate removed/modelInvocations0; source and copied-from cache bytes unchanged. Actual author CLI preserved explicit limits and registry bytes. API fake-executor task-run tests are separate: a real-provider task-run CLI and later-task benefit were not run.
-- Current acceptance repair: a read-only boundary probe found an existing preflight readiness gap (bare context94 tokens versus first-round full criteria/check context236): standalone preflight can pass while task-run refuses before executor/model. Both real preflight/Session counterexamples are RED→GREEN: the near-budget envelope refusal and exact-budget padded-objective compatibility. Fix3a49f717 counts the same first-round components including Native trimming;47focused/type/lint and independent affected review passed. Preserve zero dispatch, source/cleanup/legacy defaults and all existing assertions; no new wire/hash contract. The evaluator proves fits packet-declared context limits, not independent binding of runtime configuration. Run focused limits tests/type/lint, independent affected review and current CI; any required complete gate stays serial after the running103 gate.
-- Required remaining evidence: matching current-head Claude and actual human frozen JSON/schema review, then authorized merge and main CI. Existing human conflict/admission reviews are retained and do not approve unrelated interfaces. Context/template consumption and H2 benefits remain UNOBSERVED/unclear.
+- Current acceptance repair: a read-only boundary probe found an existing preflight readiness gap (bare context94 tokens versus first-round full criteria/check context236): standalone preflight can pass while task-run refuses before executor/model. Both real preflight/Session counterexamples are RED→GREEN: the near-budget envelope refusal and exact-budget padded-objective compatibility. Fix3a49f717 counts the same first-round components including Native trimming;47focused/type/lint and independent affected review passed. Preserve zero dispatch, source/cleanup/legacy defaults and all existing assertions; no new wire/hash contract. The evaluator proves fits packet-declared context limits, not independent binding of runtime configuration. Focused limits tests/type/lint, actual Windows CLI, affected independent review and currentf876 full hosted CI are complete. The ordinary-readiness classification below explains the scoped reuse; no current local full-gate pass is claimed. #103 full gate ended failed and remains separate.
+- Owner frozen JSON/schema review and currentf876 CI/Claude are complete; #132 merged. Observe post-merge main CI; future runtime use and real-task admission remain distinct. Existing human reviews remain scoped, and context/template benefit/H2 outcomes are UNOBSERVED/unclear.
 
 ### Owner direction and next usable result (2026-10-28)
 
@@ -246,3 +248,9 @@ Historical evidence moved [verbatim to the archive](archive/2026-10-26-r1-r3-evi
 ### R0.6 reference-price integration repair (2026-10-26)
 
 Historical evidence moved [verbatim to the archive](archive/2026-10-26-r1-r3-evidence.md#r06-reference-price-integration-repair-2026-10-26).
+
+### Readiness-delta verification classification (2026-10-31)
+
+The cf72→3a49 change only mirrors Native's existing first-round objective/metadata normalization in preflight. Independent source review confirms no change to actual execution budget rejection, cumulative accounting, permissions, scope/apply, Ledger, cancellation, snapshots or settlement. Under the ordinary-runtime Delivery Policy, use current3a complete hosted CI,47focused/type/lint, actual Windows offline-pnpm CLI and matching independent/Claude reviews; retain0e safety-core local gate/security evidence only for unchanged implementation. Do not claim a3a local full-gate pass: it was not run and is not required for this readiness-only delta. The queued repeat was cancelled without stopping103. This is impact-based validation, not a safety-gate waiver. Owner completed the3a49 frozen JSON implementation/pinning review and approved132; identical inputs persisted through docs-onlyf876 and132 merged ated6. Later interface changes still need their scoped review. Keep103's held-capacity validation separate.
+
+The final read-only remote refresh observed substantial cleanup outside this merge sequence:11live heads versus63 stale local tracking refs. Branch absence is not adoption; local refs remain and a verified private Git bundle preserves reachable local history before any prune. No branch deletion/prune was performed here. A parallel138 TODO also raises real offline preparation→managed retention/apply as a remaining end-to-end question: current real pnpm preflight proof alone does not answer it. A separate bounded synthetic cached-ms TaskSpecSession probe is in progress, with zero paid providers and no safety-manifest relaxation; retain any failure rather than declaring that use path accepted.
