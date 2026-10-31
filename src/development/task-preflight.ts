@@ -227,7 +227,7 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
     const checksStart = performance.now();
     try {
       for (const check of spec.checks) {
-        unchanged();
+        if (preparedArtifacts !== undefined && preparedDelivery !== undefined) unchanged();
         const observed = await run(check, Math.min(check.timeoutMs ?? DEFAULT_RECIPE_TIMEOUT_MS,
           checkPhaseLimit - (performance.now() - checksStart)),
         check.maxStdoutBytes ?? DEFAULT_RECIPE_OUTPUT_BYTES, check.maxStderrBytes ?? DEFAULT_RECIPE_OUTPUT_BYTES);
@@ -256,8 +256,10 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
   const correctExpired = (): void => {
     if (!ok) return;
     try {
-      if (preparedArtifacts !== undefined && preparedDelivery !== undefined) assertPreparedDelivery(preparedArtifacts, preparedDelivery);
-      input.verifySource?.();
+      if (preparedArtifacts !== undefined && preparedDelivery !== undefined) {
+        assertPreparedDelivery(preparedArtifacts, preparedDelivery);
+        input.verifySource?.();
+      }
       if (expired()) throw new DomainValidationError("preflight cancelled or total time budget exhausted during persistence");
     } catch (error) { ok = false; reason = error instanceof Error ? error.message : String(error); }
   };
