@@ -116,7 +116,8 @@ The following L1 work is unfrozen. It extends existing modules and adds no new s
   - pi-sparkle itself tracks 1,766 files. On main `616ff427`, `captureExactSnapshot(<pi-sparkle checkout>, {}, {maxFiles: 1024, ...})` refuses it with "file count limit exceeded". The same call with 4096 / 32 MiB succeeds.
   - Main's unprepared retain/apply path uses the 1024 cap, so a real task on pi-sparkle's own backlog cannot be held or applied.
   - #103 is rebased onto main after #140. Its conflicts are in `retained-candidate.ts` and its test. It then follows the safety-core path: focused checks, one Claude review, exact-head CI and the owner-delegated merge.
-  - Attempt 44 may use a smaller Node repository, so it does not wait for #103.
+  - #103 covers only the unprepared path. When fixed offline Node preparation is in use, the delivery tree plus the installed dependency graph share one 1024-file / 16 MiB budget (`src/execution/prepared-node-artifacts.ts`). pi-sparkle's own `node_modules` holds about 18,000 files, so a prepared run on pi-sparkle still needs a separate decision: either a larger artifact budget or running its checks against an existing installation.
+  - Attempt 44 therefore uses a small Node repository, and it does not wait for #103.
 - **Execution runtime.** Advancing it to the main that contains #140 is authorized after that main's CI succeeds.
 - **Real-task attempts 44–49** are authorized within ADR-011 limits:
   - at most US$5 reference cost per attempt and US$50 per week;
