@@ -85,6 +85,23 @@ test("candidate-local pnpm link journal interoperates with actual dependency lin
   });
 });
 
+test("redundant nested shared roots stay valid without discounting alias files or bytes", async () => {
+  const a = await api(); fixture(f => {
+    const pkg = path.join(f.shared, "pkg"), payload = write(pkg);
+    link(pkg, path.join(f.modules, "pkg")); link(pkg, path.join(f.modules, "alias"));
+    const input = { ...f.input, readOnlySharedStores: [f.shared, pkg] };
+    const cap = a.issuePreparedNodeArtifacts(input); a.assertPreparedNodeArtifacts(cap);
+    a.assertPreparedNodeArtifacts(a.issuePreparedNodeArtifacts({ ...input, readOnlySharedStores: [pkg, f.shared, pkg, f.shared] }));
+    assert.equal(a.preparedNodeArtifactLinks(cap).length, 2, "redundant declarations do not merge actual candidate link edges");
+    a.assertPreparedDelivery(cap, a.capturePreparedDelivery(cap));
+    fs.writeFileSync(payload, Buffer.alloc(8388608));
+    assert.throws(() => a.issuePreparedNodeArtifacts(input), /byte|budget/i, "both aliases consume bytes even though the declaration union contains their target twice");
+    fs.writeFileSync(payload, "x", "utf8");
+    for (let index = 0; index < 511; index++) write(pkg, `extra-${index}`, "");
+    assert.throws(() => a.issuePreparedNodeArtifacts(input), /file|budget/i, "512 actual files reached through two aliases plus delivery exceed 1024 observations");
+  });
+});
+
 for (const mutation of ["transitive-bytes", "new-entry", "removed-file", "replaced-file", "retarget-local", "retarget-shared", "replaced-parent", "hardlink-after-issue"] as const) {
   test(`prepared artifact assertion refuses ${mutation}`, async () => {
     const a = await api(); fixture(f => {

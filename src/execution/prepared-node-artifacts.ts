@@ -221,9 +221,11 @@ export function issuePreparedNodeArtifacts(input: { readonly sourceRepo: string;
     if (!/^[0-9a-f]{40}$/.test(input.sourceRevision)) fail("sourceRevision must be an exact Git revision");
     const source = directory(input.sourceRepo), candidate = directory(input.candidatePath);
     if (overlap(source.path, candidate.path)) fail("source and candidate overlap");
-    const shared = input.readOnlySharedStores.map(directory);
-    const namespaces = [source, candidate, ...shared];
-    if (namespaces.some((root, index) => namespaces.slice(index + 1).some(other => overlap(root.path, other.path)))) fail("source, candidate and shared roots must not overlap");
+    const declaredShared = input.readOnlySharedStores.map(directory);
+    if (declaredShared.some(root => overlap(source.path, root.path) || overlap(candidate.path, root.path))) fail("source, candidate and shared roots must not overlap");
+    // Redundant declarations preserve the same union; they grant no extra scope.
+    const shared = declaredShared.filter((root, index) => !declaredShared.some((other, otherIndex) => otherIndex !== index && within(other.path, root.path) &&
+      (pathKey(other.path) !== pathKey(root.path) || otherIndex < index)));
     for (const root of [source, candidate]) {
       if (git(root.path, ["rev-parse", "--show-cdup"]) !== "" || git(root.path, ["rev-parse", "HEAD"]) !== input.sourceRevision) fail("repository base does not match the source revision");
     }
