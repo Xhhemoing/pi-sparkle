@@ -15,6 +15,15 @@ The owner accepted [ADR-012](../docs/decisions/0012-three-pillar-architecture.md
 - Next usable result (stage A): one real Node task runs prepare → execute → check → apply on the advanced runtime.
 - Earlier checkpoint text below is retained evidence. It does not override this decision.
 
+## Owner direction: production practices folded into the roadmap (2026-10-31)
+
+The owner asked to fold the DevFest 2026 practices into the plan without implementing them now. [Roadmap](../docs/roadmap.md) stages B–E carry the sequencing and the external comparison table. These additions do not unfreeze routing/learning/adaptation, change budgets or authorize runtime work:
+
+- Stage B (next after stage A): rework count and per-phase tokens where observable (unknown otherwise) in existing records; a failure-class ranking (count, then known cost; no score when cost is unknown) in `real-task-summary.mjs`. Script change follows the ordinary test-first PR path.
+- Stage C: C8 delivery walkthrough from existing projection/check records; C6 review may only tighten and needs ≥20 human-labelled agreement before it affects any decision.
+- Stage D: circuit breaker after two consecutive same-class failures of one work item.
+- Stage E: ~10% canary with rollback for auto-adopted types; rejected/rolled-back proposals stay in the registry; synthetic variants are development-only, never holdout or benefit evidence.
+
 <a id="current-execution-checkpoint-2026-10-26"></a>
 
 ## Current execution checkpoint (2026-10-31)
