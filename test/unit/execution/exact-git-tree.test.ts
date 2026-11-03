@@ -130,6 +130,41 @@ test("Git batch parser refuses corrupted real-process headers and binary framing
   }
 });
 
+test("silent Git read failures retain process diagnostics without exposing repository paths", (t) => {
+  const root = fixture(t);
+  const tree = stage(root), snapshot = captureExactSnapshot(root);
+  const original = childProcess.spawnSync;
+  const faults = [{ status: 128, signal: null }, { status: null, signal: "SIGTERM" as const },
+    { status: 3221225794, signal: null }];
+  for (const fault of faults) {
+    let injected = false;
+    const intercepted = mock.method(childProcess, "spawnSync", ((...args: Parameters<typeof spawnSync>) => {
+      const result = original(...args);
+      if (Array.isArray(args[1]) && args[1].includes("cat-file") && args[1].includes("-t")) {
+        injected = true;
+        return { ...result, error: undefined, ...fault, stderr: Buffer.alloc(0) };
+      }
+      return result;
+    }) as typeof spawnSync);
+    syncBuiltinESMExports();
+    try {
+      assert.throws(() => assertExactSnapshotMatchesGitTree(snapshot, root, tree), (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /operation=cat-file/);
+        assert.ok(error.message.includes(`status=${fault.status}`));
+        assert.ok(error.message.includes(`signal=${fault.signal}`));
+        assert.match(error.message, /stderrBytes=0/);
+        assert.equal(error.message.includes(root), false, "diagnostics must not add repository paths");
+        return true;
+      });
+      assert.equal(injected, true);
+    } finally { intercepted.mock.restore(); syncBuiltinESMExports(); }
+  }
+  // A legitimate no-match configuration exit remains legal, never a read failure.
+  assert.doesNotThrow(() => attributes(root, tree));
+  assert.equal(fs.readFileSync(path.join(root, "file"), "utf8"), "same");
+});
+
 test("attribute batching preserves the per-path output bound", (t) => {
   const root = fixture(t);
   const tree = stage(root);
