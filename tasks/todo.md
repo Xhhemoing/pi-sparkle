@@ -2,7 +2,7 @@
 
 See the [current checkpoint](plan.md#current-execution-checkpoint-2026-10-26), [issue log](issues.md#i-16--local-and-remote-branch-consolidation), [ADR011](../docs/decisions/0011-real-task-improvement-loop.md) and [ADR012](../docs/decisions/0012-three-pillar-architecture.md). Unfinished work only.
 
-- [ ] 协调者：#146工作项→TaskSpec草稿桥接等待当前head Claude与owner审阅/采纳；CI已绿，本地完整gate失败与I10诊断保留，队列运行时未迁移。
+- [ ] 协调者：#146 d8aa044a CI已绿、原两失败同轮已过；保留本地1项超时取消及单项复验，等待Claude服务恢复/评审及owner审阅。
 - [ ] 协调者（阶段A）：保留#140未完成Windows串行本地gate的残余风险；补跑当前集成候选并单独记录，历史失败不改写。
 - [ ] 协调者（阶段A）：Git<2.36 在调用模型前拒绝并在doctor提示（`worktree list -z`）；切片PR需owner合并。
 - [ ] 协调者（阶段A）：#140已合并且当前main CI绿，把执行runtime从280882b4推进到已验证main（ADR012已授权）；单独记录安装结果。
