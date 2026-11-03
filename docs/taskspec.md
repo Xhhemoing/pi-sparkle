@@ -182,6 +182,53 @@ options are not automatically valid for `pnpm exec`. A fixed Node test entry
 can avoid that wrapper when appropriate. Neither cache preparation nor a green
 preflight is a completed development change.
 
+## Author a TaskSpec from a work item
+
+The experimental [`authorTaskSpecFromWorkItem`](../src/development/work-item-task-spec.ts)
+connects a host-selected [`WorkItemDefinition`](../src/development/work-items.ts)
+to this task path. It is pure authoring: no file/queue changes, commands, model
+calls or authority acquisition. The existing [`develop` controller](development-agent-loop.md)
+still executes Native directly; it does not automatically use this adapter or
+inherit TaskSpec preparation and USD limits.
+
+After building, a trusted repository host can use this deep module entry. Here
+`item` is its selected work-item definition with a check named `addition`;
+`sourceRepo`, `session` and `executorFactory` are separate trusted host inputs:
+
+```ts
+import { authorTaskSpecFromWorkItem } from "./dist/development/work-item-task-spec.js";
+
+const { workItemId, spec } = authorTaskSpecFromWorkItem({
+  item,
+  context: ["add.mjs"],
+  prepare: [],
+  checkExpectations: { addition: { expect: { baseline: "pass" } } },
+  budget: { totalSeconds: 60, prepareSeconds: 10, checkSeconds: 10, workerSeconds: 20, usd: 1 },
+});
+const execution = await session.run({ sourceRepo, spec, executorFactory });
+// Keep workItemId alongside execution.runId for host-side tracing.
+// Apply/discard still requires an explicit decision in this live session.
+```
+
+Review the actual baseline; the example's `pass` is not inferred. Every recipe
+must have exactly one own-data entry in `checkExpectations`; missing or extra IDs
+refuse. A binding may also set `visibleToWorker: false`. The adapter preserves
+recipe order, command/argv, verifier version and limits; it unions declared
+protected paths and keeps the original writable scope. Optional `requiredWrites`,
+`limits` and inherited-model `worker` settings use existing TaskSpec validation.
+Context, preparation and budget must be explicitly supplied. Inputs are copied
+and the result is deeply frozen without freezing caller-owned definitions.
+
+`workItemId` is a correlation field, not proof of a claim, dependency completion,
+acceptance or application. The host must admit dependencies, overlaps, budgets
+and authority independently before executing; this function neither claims nor
+marks the queue accepted. A recorded TaskSpec result cannot be submitted as
+queue acceptance evidence without the queue's existing host verification.
+The [synthetic integration test](../test/integration/development/work-item-task-spec.test.ts)
+exercises the actual preflight/check/apply seam while leaving queue bytes unchanged.
+For lower-level host execution see [direct development tasks](direct-development-task.md);
+the [contribution SDK](sdk.md) only provides read-only data.
+
 ## Run with configured Pi from the CLI
 
 ```text
@@ -273,6 +320,13 @@ That can qualify the selected configuration; it cannot establish equivalence to
 every parent session or demonstrate the quality/cost targets.
 
 ## Read a historical Verdict
+
+Use this command for a Native/TaskSpec artifact. If the reference is a queue
+`actionId` from `develop run` or `batch`, start with
+[`develop review`](development-agent-loop.md#查看候选的历史证据).
+Its `DevelopmentCandidateReview` JSON is not a Task Verdict input format.
+An underlying explicitly identified Native artifact may be read separately;
+neither view restores live acceptance or application authority.
 
 ```text
 pnpm cli task verdict --artifact <artifact.json> --markdown
