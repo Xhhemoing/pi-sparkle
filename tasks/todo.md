@@ -2,14 +2,15 @@
 
 See the [current checkpoint](plan.md#current-execution-checkpoint-2026-10-26), [issue log](issues.md#i-16--local-and-remote-branch-consolidation), [ADR011](../docs/decisions/0011-real-task-improvement-loop.md) and [ADR012](../docs/decisions/0012-three-pillar-architecture.md). Unfinished work only.
 
-- [ ] 协调者（阶段A）：#140 精确head CI绿后合并；随后观察main CI。Windows串行本地gate未完成，作为已接受的残余风险补跑并记录。
+- [ ] 协调者：#146工作项→TaskSpec草稿桥接等待当前head Claude与owner审阅/采纳；CI已绿，本地完整gate失败与I10诊断保留，队列运行时未迁移。
+- [ ] 协调者（阶段A）：保留#140未完成Windows串行本地gate的残余风险；补跑当前集成候选并单独记录，历史失败不改写。
 - [ ] 协调者（阶段A）：Git<2.36 在调用模型前拒绝并在doctor提示（`worktree list -z`）；切片PR需owner合并。
-- [ ] 协调者（阶段A）：#140所在main CI绿后，把执行runtime从280882b4推进到该main（ADR012已授权）；单独记录安装结果。
+- [ ] 协调者（阶段A）：#140已合并且当前main CI绿，把执行runtime从280882b4推进到已验证main（ADR012已授权）；单独记录安装结果。
 - [ ] 协调者（阶段A）：第44次真实Node小任务完整走到apply并通过原项目检查；≤US$5，记入canonical私有账本。
 - [ ] 协调者（阶段B）：第45–49次5个不同真实任务（H2优先），记录检查/应用/介入/各阶段时长/费用覆盖/失败类；选出最常见失败类。
 - [ ] 协调者（阶段B，开跑前）：summary增加失败类别排序（次数→已知费用，未知费用不打分）、记录返工次数与可得的分阶段token；先写失败测试，普通PR。
 - [ ] 协调者（阶段C–E）：C8交付说明、C6裁判校准（≥20条人工标注）、D连续两次同类失败熔断、E 10%灰度与合成题只进开发集；按roadmap顺序，不提前解冻。
-- [ ] 协调者（阶段A）：#103 rebase到#140后的main（冲突在retained-candidate.ts及其测试），按安全核心流程审查和CI后合并；自身仓库1766文件超出主干1024上限。#138已关闭。
+- [ ] 协调者（阶段A）：#103已rebase为#144，保留其本地失败/未完成证据，按安全核心流程完成审查和采纳；prepared容量仍另议。#138已关闭。
 - [ ] 协调者：保留I16历史独有能力、68/102本地历史refs、host-check修改与旧dirty快照；不恢复冻结模块或删除证据。
 - [ ] 协调者：I10偶发失败按既定方式只重跑一次失败job；保留前后证据，第二次失败先诊断。
 - [ ] 协调者：原Soul只读；条件不变不重试P01/P02；第50次或每周复盘合并记录。
