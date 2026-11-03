@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { authorTaskSpecFromWorkItem, type WorkItemTaskSpecInput } from "../../../src/development/work-item-task-spec.js";
+import { createWorkQueue } from "../../../src/development/work-items.js";
 
 function input(): WorkItemTaskSpecInput {
   return { item: { id: "repair-value", goal: "Repair [[file:src/value.ts]]", dependencies: ["prepare"], priority: 90,
@@ -30,6 +31,15 @@ test("work-item authoring preserves identity, scope, every recipe and explicit h
   assert.equal(result.spec.checks[1]!.visibleToWorker, false);
   assert.equal(Object.isFrozen(result), true);
   assert.equal(Object.isFrozen(result.spec.checks[0]!.args), true);
+});
+
+test("work-item authoring preserves literal scope semantics instead of adopting TaskSpec globs", () => {
+  const source = input();
+  for (const prefix of ["src/**", "src/*.ts"]) {
+    const item = { ...source.item, dependencies: [], allowedScope: [prefix] };
+    assert.throws(() => createWorkQueue({ id: "literal-scope", authorityRef: "host:synthetic", items: [item] }), /literal/);
+    assert.throws(() => authorTaskSpecFromWorkItem({ ...source, item, requiredWrites: [] }), /literal/);
+  }
 });
 
 test("work-item authoring never omits a check or invents a missing baseline", () => {
@@ -80,6 +90,8 @@ test("work-item authoring rejects accessors and proxies without invoking caller 
   Object.defineProperty(acceptance, 0, { get: getter });
   const args = [] as string[];
   Object.defineProperty(args, 0, { get: getter });
+  const scopes = [] as string[];
+  Object.defineProperty(scopes, 0, { get: getter });
   const bindings = { ...source.checkExpectations };
   Object.defineProperty(bindings, "types", { get: getter });
   const cases = [Object.defineProperty({ ...source }, "item", { get: getter }),
@@ -88,6 +100,8 @@ test("work-item authoring rejects accessors and proxies without invoking caller 
     { ...source, item: { ...source.item, acceptance: proxy() } },
     { ...source, item: { ...source.item, acceptance: [{ ...source.item.acceptance[0], args }] } },
     { ...source, item: { ...source.item, acceptance: [{ ...source.item.acceptance[0], args: proxy() }] } },
+    { ...source, item: { ...source.item, allowedScope: scopes } },
+    { ...source, item: { ...source.item, allowedScope: proxy() } },
     { ...source, checkExpectations: bindings },
     { ...source, context: proxy() }];
   for (const value of cases) assert.throws(() => authorTaskSpecFromWorkItem(value as WorkItemTaskSpecInput));

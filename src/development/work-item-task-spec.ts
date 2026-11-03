@@ -2,7 +2,7 @@ import { DomainValidationError } from "../domain/errors.js";
 import { snapshotDevelopmentCheckPlan } from "./check-plan.js";
 import { snapshotDevelopmentTaskSpec, snapshotTaskSpecHostArray, snapshotTaskSpecHostInput,
   type DevelopmentTaskCheck, type DevelopmentTaskSpec } from "./task-spec.js";
-import { workItemText, type WorkItemDefinition } from "./work-items.js";
+import { workItemScope, workItemText, type WorkItemDefinition } from "./work-items.js";
 
 export interface WorkItemTaskSpecInput {
   /** A host-selected definition; scheduling/dependencies must be admitted separately. */
@@ -26,6 +26,7 @@ export function authorTaskSpecFromWorkItem(input: WorkItemTaskSpecInput): { read
   const workItemId = workItemText(item.id, "id", 64);
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(workItemId)) fail("invalid work-item id");
   if (host.context === undefined || host.prepare === undefined) fail("host must explicitly select context and preparation");
+  const allowedScope = snapshotTaskSpecHostArray(item.allowedScope, 32, 1).map(workItemScope);
   // Snapshot own data before the existing recipe parser reads nested fields.
   const recipes = snapshotTaskSpecHostArray(item.acceptance, 8, 1).map(value => {
     const recipe = snapshotTaskSpecHostInput(value, RECIPE_FIELDS);
@@ -41,7 +42,7 @@ export function authorTaskSpecFromWorkItem(input: WorkItemTaskSpecInput): { read
       ...(binding.visibleToWorker === undefined ? {} : { visibleToWorker: binding.visibleToWorker }) };
   });
   const spec = snapshotDevelopmentTaskSpec({ version: 1, objective: item.goal, context: host.context, prepare: host.prepare,
-    write: { allow: item.allowedScope, protect: [...new Set(plan.checks.flatMap(check => check.protectedPaths ?? []))],
+    write: { allow: allowedScope, protect: [...new Set(plan.checks.flatMap(check => check.protectedPaths ?? []))],
       ...(host.requiredWrites === undefined ? {} : { require: host.requiredWrites }) },
     checks, budget: host.budget, ...(host.limits === undefined ? {} : { limits: host.limits }),
     ...(host.worker === undefined ? {} : { worker: host.worker }) });

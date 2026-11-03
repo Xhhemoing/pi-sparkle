@@ -214,8 +214,10 @@ Review the actual baseline; the example's `pass` is not inferred. Every recipe
 must have exactly one own-data entry in `checkExpectations`; missing or extra IDs
 refuse. A binding may also set `visibleToWorker: false`. The adapter preserves
 recipe order, command/argv, verifier version and limits; it unions declared
-protected paths and keeps the original writable scope. Optional `requiredWrites`,
-`limits` and inherited-model `worker` settings use existing TaskSpec validation.
+protected paths and keeps the original writable scope.
+The work-item scope remains literal: TaskSpec's bounded glob support does not
+make a glob valid in a work-item definition.
+Optional `requiredWrites`, `limits` and inherited-model `worker` settings use existing TaskSpec validation.
 Context, preparation and budget must be explicitly supplied. Inputs are copied
 and the result is deeply frozen without freezing caller-owned definitions.
 
