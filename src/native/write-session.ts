@@ -221,6 +221,29 @@ function failedExecutor(reason: string): AgentExecutor {
   };
 }
 
+/** Records whether the executor, including its host post-execution guards, finished or threw. */
+function settlingExecutor(executor: AgentExecutor): { executor: AgentExecutor; state: { completed: boolean; failed: boolean } } {
+  const state = { completed: false, failed: false };
+  return { state, executor: {
+    ...(executor.supportedModelIds === undefined ? {} : { supportedModelIds: executor.supportedModelIds }),
+    ...(executor.steerText === undefined ? {} : { steerText: executor.steerText.bind(executor) }),
+    async *execute(request, workerSignal) {
+      let stoppedFinished: ExecutionEvent | undefined;
+      try {
+        for await (const event of executor.execute(request, workerSignal)) {
+          // The coordinator drops post-timeout events. Drain them here first
+          // so host scope/protected-path guards after yield* still execute.
+          if (workerSignal.aborted) {
+            if (event.type === "EXECUTION_FINISHED") stoppedFinished = event;
+          } else yield event;
+        }
+        state.completed = true;
+        if (stoppedFinished !== undefined) yield stoppedFinished;
+      } catch (error) { state.failed = true; throw error; }
+    }
+  } };
+}
+
 /**
  * Runs one implementer in a retained detached worktree. The source checkout
  * is never the mutable target, and only a successful host check can accept it.
@@ -647,27 +670,8 @@ export class NativeWriteSession {
     if (costAttempt !== undefined) task.limits = { ...task.limits, maxCostUsd: costAttempt.handle.remainingReferenceUsd };
     const workerStarted = performance.now();
     const costExecutor = factoryError === undefined && costAttempt !== undefined ? costAttempt.wrap(executor) : executor;
-    let executorCompleted = false;
-    let executorFailed = false;
-    const settledExecutor: AgentExecutor = {
-      ...(costExecutor.supportedModelIds === undefined ? {} : { supportedModelIds: costExecutor.supportedModelIds }),
-      ...(costExecutor.steerText === undefined ? {} : { steerText: costExecutor.steerText.bind(costExecutor) }),
-      async *execute(request, workerSignal) {
-        let stoppedFinished: ExecutionEvent | undefined;
-        try {
-          for await (const event of costExecutor.execute(request, workerSignal)) {
-            // The coordinator drops post-timeout events. Drain them here first
-            // so host scope/protected-path guards after yield* still execute.
-            if (workerSignal.aborted) {
-              if (event.type === "EXECUTION_FINISHED") stoppedFinished = event;
-            } else yield event;
-          }
-          executorCompleted = true;
-          if (stoppedFinished !== undefined) yield stoppedFinished;
-        } catch (error) { executorFailed = true; throw error; }
-      }
-    };
-    const running = startParentRun({ stateRoot: this.options.stateRoot, executor: hostAttempt?.wrap(settledExecutor) ?? settledExecutor }, {
+    const settled = settlingExecutor(costExecutor);
+    const running = startParentRun({ stateRoot: this.options.stateRoot, executor: hostAttempt?.wrap(settled.executor) ?? settled.executor }, {
       projectRoot: session.worktree.cwd,
       objective,
       children: [task]
@@ -736,7 +740,7 @@ export class NativeWriteSession {
 
     // A FAILED self-report can be projected as BLOCKED by the parent tracking
     // gate. That advisory verdict must still reach the independent checker.
-    if (factoryError !== undefined || executorFailed || !executorCompleted ||
+    if (factoryError !== undefined || settled.state.failed || !settled.state.completed ||
         (outcome.status !== "COMPLETED" && outcome.status !== "FAILED" && outcome.status !== "BLOCKED")) {
       const reason = factoryError === undefined
         ? `executor did not complete successfully (status=${outcome.status})`
