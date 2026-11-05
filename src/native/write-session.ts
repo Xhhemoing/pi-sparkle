@@ -317,12 +317,14 @@ export class NativeWriteSession {
     const onAbort = (): void => active.cancel();
     input.signal?.addEventListener("abort", onAbort, { once: true });
     let timedOut = false;
+    const deadline = limits.enabled ? performance.now() + limits.maxWallTimeMs : Infinity;
+    const remainingTotalMs = (): number => Math.floor(deadline - performance.now());
     const timer = limits.enabled ? setTimeout(() => { timedOut = true; active.cancel(); }, limits.maxWallTimeMs) : undefined;
     timer?.unref();
     const collector = this.options.hostEvaluator === undefined ? undefined : new NativeHostOutcomeCollector(this.options.hostEvaluator);
     const costBudget = referenceUsdBudget === undefined ? undefined : new NativeWriteCostBudget(referenceUsdBudget);
     const logicalTaskId = collector?.logicalTaskId ?? `logical_task_${randomUUID()}`;
-    const operation = this.executeInternal({ ...input, phaseTimeLimits, referenceUsdBudget, ...(plannedCheck === undefined ? {} : plannedCheck) }, combinedSignal, active, limits, workerTimeoutMs, () => timedOut, presentation, taskContext, collector, costBudget).then(async (result): Promise<NativeWriteSessionResult> => {
+    const operation = this.executeInternal({ ...input, phaseTimeLimits, referenceUsdBudget, ...(plannedCheck === undefined ? {} : plannedCheck) }, combinedSignal, active, limits, workerTimeoutMs, () => timedOut, remainingTotalMs, presentation, taskContext, collector, costBudget).then(async (result): Promise<NativeWriteSessionResult> => {
       if (analysis !== undefined) result = { ...result, findingAnalyses: analysis.project(active.analysisHistory) };
       if (collector === undefined && costBudget === undefined) return { ...result, logicalTaskId };
       let artifact = collector === undefined ? undefined : await saveLoopArtifact({ stateRoot: this.options.stateRoot, runId: result.runId, body: collector.references() });
@@ -407,6 +409,7 @@ export class NativeWriteSession {
     limits: NativeWriteLoopLimits,
     workerTimeoutMs: number,
     timedOut: () => boolean,
+    remainingTotalMs: () => number,
     presentation: ResolvedTaskPresentation | undefined,
     taskContext: TaskContextInput | undefined,
     collector: NativeHostOutcomeCollector | undefined,
@@ -499,7 +502,7 @@ export class NativeWriteSession {
         }
       }
       const objective = preparedContext === undefined ? baseObjective : `${baseObjective}\n\n${preparedContext.renderedContext}`;
-      const result = await this.runAttempt(preflight, session, signal, active, workerTimeoutMs, attempt, presentation, objective, preparedContext, collector, timeBudget, costBudget);
+      const result = await this.runAttempt(preflight, session, signal, active, workerTimeoutMs, remainingTotalMs, attempt, presentation, objective, preparedContext, collector, timeBudget, costBudget);
       previousResult = result;
       attempts.push({ number, runId: result.runId, artifact: result.artifact, accepted: result.acceptance.accepted,
         ...(result.taskContract === undefined ? {} : { taskContractArtifact: result.taskContract.artifact }) });
@@ -537,12 +540,14 @@ export class NativeWriteSession {
         return { ...finalResult, ...(costBudget === undefined ? {} : { referenceCost: costBudget.snapshot() }), loop: { ...detail(), artifact } };
       };
       if ((input.phaseTimeLimits !== undefined || costBudget !== undefined) && result.effectsSettled === false) return finish("verification-unavailable");
-      if (timedOut()) return finish("time-budget");
-      if (timeBudget.exhausted() !== undefined) return finish("time-budget");
+      if (timedOut() || remainingTotalMs() < 1 || timeBudget.remaining("check") < 1) return finish("time-budget");
       if (signal.aborted || result.status === "CANCELLED") return finish("cancelled");
       const costStop = costBudget?.stopReason(result.acceptance.accepted);
       if (costStop !== undefined) return finish(costStop);
       if (result.acceptance.accepted) return finish("accepted");
+      // Worker exhaustion prevents repair, but cannot veto a timely host pass.
+      if (timeBudget.exhausted() !== undefined ||
+          remainingTotalMs() <= Math.min(preflight.verification.timeoutMs ?? 60_000, timeBudget.remaining("check"))) return finish("time-budget");
       const check = result.acceptance.independentCheck;
       if (check === undefined) return finish(result.reason.startsWith("independent verification failed") ? "verification-unavailable" : "executor-failed");
       if (!isRepairableCheck(check, preflight.verification.repairableExitCodes)) return finish("verification-unavailable");
@@ -570,6 +575,7 @@ export class NativeWriteSession {
     signal: AbortSignal,
     active: ActiveWrite,
     workerTimeoutMs: number,
+    remainingTotalMs: () => number,
     attempt: NativeWriteAttemptContext | undefined,
     presentation: ResolvedTaskPresentation | undefined,
     objective: string,
@@ -628,7 +634,10 @@ export class NativeWriteSession {
     }
 
     const registry = createAgentProfileRegistry(defaultAgentProfiles());
-    const selectedWorkerMs = Math.min(workerTimeoutMs, timeBudget.remaining("worker"));
+    // Leave the final independent check its allowance under the same total
+    // deadline. Preparation/factory time has already consumed that deadline.
+    const checkAllowanceMs = Math.min(preflight.verification.timeoutMs ?? 60_000, timeBudget.remaining("check"));
+    const selectedWorkerMs = Math.min(workerTimeoutMs, timeBudget.remaining("worker"), Math.max(1, remainingTotalMs() - checkAllowanceMs));
     if (timeBudget.exhausted() !== undefined && factoryError === undefined) {
       factoryError = `${timeBudget.exhausted()} cumulative time budget exhausted before worker`;
       executor = failedExecutor(factoryError);
@@ -677,8 +686,8 @@ export class NativeWriteSession {
       }), effectsSettled: false });
     }
 
-    if (!signal.aborted && timeBudget.exhausted() !== undefined) {
-      return bindContract(await this.failureResult(preflight, session, `${timeBudget.exhausted()} cumulative time budget exhausted`, {
+    if (!signal.aborted && timeBudget.remaining("check") < 1) {
+      return bindContract(await this.failureResult(preflight, session, "check cumulative time budget exhausted", {
         runId: outcome.runId, status: "FAILED", events: outcome.events
       }));
     }
@@ -704,7 +713,9 @@ export class NativeWriteSession {
       }));
     }
 
-    if (factoryError !== undefined || outcome.status !== "COMPLETED") {
+    // A FAILED self-report can be projected as BLOCKED by the parent tracking
+    // gate. That advisory verdict must still reach the independent checker.
+    if (factoryError !== undefined || (outcome.status !== "COMPLETED" && outcome.status !== "FAILED" && outcome.status !== "BLOCKED")) {
       const reason = factoryError === undefined
         ? `executor did not complete successfully (status=${outcome.status})`
         : `executor factory failed: ${factoryError}`;
@@ -728,7 +739,7 @@ export class NativeWriteSession {
     const checkStarted = performance.now();
     try {
       try {
-      const checkTimeoutMs = Math.min(preflight.verification.timeoutMs ?? 60_000, timeBudget.remaining("check"));
+      const checkTimeoutMs = Math.min(preflight.verification.timeoutMs ?? 60_000, timeBudget.remaining("check"), remainingTotalMs());
       if (checkTimeoutMs < 1) throw new DomainValidationError("check cumulative time budget exhausted before verification");
       checked = await runClosedLoopCheck({
         session,
@@ -736,7 +747,7 @@ export class NativeWriteSession {
         runId: outcome.runId,
         command: preflight.verification.command,
         args: preflight.verification.args,
-        ...(preflight.verification.timeoutMs === undefined && timeBudget.remaining("check") === Infinity ? {} : { timeoutMs: checkTimeoutMs }),
+        ...(preflight.verification.timeoutMs === undefined && timeBudget.remaining("check") === Infinity && remainingTotalMs() === Infinity ? {} : { timeoutMs: checkTimeoutMs }),
         ...(preflight.verification.trustedVerification === undefined ? {} : { trustedVerification: preflight.verification.trustedVerification }),
         ...(preflight.verification.unsettledExitCodes === undefined ? {} : { unsettledExitCodes: preflight.verification.unsettledExitCodes }),
         requireSettledEffects: true,
@@ -762,9 +773,14 @@ export class NativeWriteSession {
         events: outcome.events
       }));
     }
-    const result = acceptedResult(preflight, session, checked, outcome.runId, outcome.events.length);
-    if (timeBudget.exhausted() !== undefined) return bindContract({ ...result, status: "FAILED", reason: "check cumulative time budget exhausted",
+    const checkedResult = acceptedResult(preflight, session, checked, outcome.runId, outcome.events.length);
+    const workerStop = timeBudget.remaining("worker") < 1 ? "worker cumulative time budget exhausted" :
+      outcome.status !== "COMPLETED" ? `executor did not complete successfully (status=${outcome.status})` : undefined;
+    const result = workerStop === undefined ? checkedResult : { ...checkedResult, reason: `${workerStop}; ${checkedResult.reason}` };
+    if (timeBudget.remaining("check") < 1) return bindContract({ ...result, status: "FAILED", reason: "check cumulative time budget exhausted",
       acceptance: { ...result.acceptance, accepted: false, reason: "check cumulative time budget exhausted" } });
+    if (remainingTotalMs() < 1) return bindContract({ ...result, status: "CANCELLED", reason: "time-budget",
+      acceptance: { ...result.acceptance, accepted: false, reason: "time-budget" } });
     const descriptor = preflight.verification.trustedVerification;
     if (descriptor === undefined) return bindContract(result);
     const projection = findingsFromIndependentCheck({ check: checked.check, trustedVerification: descriptor,

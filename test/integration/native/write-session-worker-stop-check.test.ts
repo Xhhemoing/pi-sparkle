@@ -126,13 +126,34 @@ test("total deadline reserves final check time before selecting the worker allow
   } finally { await f.session.shutdown(); }
 });
 
+test("a completed worker exhausting its pool cannot veto a timely successful check", { timeout: 60000 }, async t => {
+  let elapsed = 0; t.mock.method(performance, "now", () => elapsed);
+  const f = await fixture({ report: "PASSED", afterWrite() { elapsed = 1000; } });
+  try {
+    const result = await f.session.execute({ ...f.input, phaseTimeLimits: { workerTotalMs: 1000, checkTotalMs: 5000 } });
+    assert.deepEqual(await f.checks(), [{ cwd: result.candidatePath, value: "good" }]);
+    assert.equal(result.acceptance.accepted, true, result.reason); assert.notEqual(result.effectsSettled, false);
+    assert.equal(result.loop?.stopReason, "accepted"); assert.match(result.reason, /worker cumulative/);
+  } finally { await f.session.shutdown(); }
+});
+
+test("total deadline exhausted during worker settlement permits no check", { timeout: 60000 }, async t => {
+  let elapsed = 0; t.mock.method(performance, "now", () => elapsed);
+  const f = await fixture({ afterWrite() { elapsed = 15000; } });
+  try {
+    const result = await f.session.execute({ ...f.input, maxWallTimeMs: 15000 });
+    assert.deepEqual(await f.checks(), []); assert.equal(result.acceptance.accepted, false);
+    assert.equal(result.loop?.stopReason, "time-budget"); assert.equal(f.contexts.length, 1);
+  } finally { await f.session.shutdown(); }
+});
+
 for (const stop of ["abort", "shutdown", "unsettled-command"] as const) test(`no check after ${stop} even with a correct candidate`, { timeout: 60000 }, async () => {
   const controller = new AbortController(); let shutdown: Promise<void> | undefined;
   const f = await fixture({ afterWrite(context) {
     if (stop === "abort") controller.abort();
     else if (stop === "shutdown") shutdown = f.session.shutdown();
-    else context.onCommandCleanupUnsettled({ cleanupUnsettled: true, status: "failed", exitCode: null,
-      signal: null, stdoutByteLength: 0, stderrByteLength: 0 } as Parameters<typeof context.onCommandCleanupUnsettled>[0]);
+    else context.onCommandCleanupUnsettled({ cleanupUnsettled: true, status: "timed_out", exitCode: null,
+      spawned: true, ok: false, stdoutText: "", stderrText: "", signal: null, stdoutByteLength: 0, stderrByteLength: 0 });
   } });
   try {
     const result = await f.session.execute({ ...f.input, signal: controller.signal });
@@ -179,5 +200,17 @@ test("wrong candidate after worker exhaustion is checked but cannot start anothe
     assert.deepEqual(await f.checks(), [{ cwd: result.candidatePath, value: "wrong" }]);
     assert.equal(result.acceptance.accepted, false); assert.equal(result.loop?.stopReason, "time-budget");
     assert.equal(f.contexts.length, 1); assert.notEqual(result.effectsSettled, false);
+  } finally { await f.session.shutdown(); }
+});
+
+test("a wrong timed-out worker candidate is repaired when attempts and both pools remain", { timeout: 60000 }, async () => {
+  const f = await fixture({ values: ["wrong", "good"], hang: true });
+  try {
+    const result = await f.session.execute({ ...f.input, maxAttempts: 2, workerTimeoutMs: 1000,
+      phaseTimeLimits: { workerTotalMs: 20000, checkTotalMs: 20000 } });
+    assert.deepEqual(await f.checks(), [{ cwd: result.candidatePath, value: "wrong" }, { cwd: result.candidatePath, value: "good" }]);
+    assert.equal(result.loop?.attempts[0]?.accepted, false); assert.equal(f.contexts[1]?.attempt?.previous?.exitCode, 1);
+    assert.equal(result.acceptance.accepted, true, result.reason); assert.notEqual(result.effectsSettled, false);
+    assert.equal(result.loop?.stopReason, "accepted"); assert.equal(f.contexts.length, 2);
   } finally { await f.session.shutdown(); }
 });
