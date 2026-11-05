@@ -13,7 +13,7 @@ import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/regi
 import { createTaskId, type RunId, type TaskId } from "../domain/ids.js";
 import type { ModelInvocation } from "../telemetry/model-invocation.js";
 import { NativeHostOutcomeCollector, snapshotNativeHostEvaluator, type NativeHostEvaluator, type NativeHostObservation } from "./host-outcome.js";
-import type { AgentExecutor } from "../execution/contract.js";
+import type { AgentExecutor, ExecutionEvent } from "../execution/contract.js";
 import { CommandCleanupIncompleteError, type AuthorizedCommandRunResult } from "../execution/command-runner.js";
 import {
   closeClosedLoop,
@@ -546,8 +546,7 @@ export class NativeWriteSession {
       if (costStop !== undefined) return finish(costStop);
       if (result.acceptance.accepted) return finish("accepted");
       // Worker exhaustion prevents repair, but cannot veto a timely host pass.
-      if (timeBudget.exhausted() !== undefined ||
-          remainingTotalMs() <= Math.min(preflight.verification.timeoutMs ?? 60_000, timeBudget.remaining("check"))) return finish("time-budget");
+      if (timeBudget.exhausted() !== undefined) return finish("time-budget");
       const check = result.acceptance.independentCheck;
       if (check === undefined) return finish(result.reason.startsWith("independent verification failed") ? "verification-unavailable" : "executor-failed");
       if (!isRepairableCheck(check, preflight.verification.repairableExitCodes)) return finish("verification-unavailable");
@@ -634,10 +633,12 @@ export class NativeWriteSession {
     }
 
     const registry = createAgentProfileRegistry(defaultAgentProfiles());
-    // Leave the final independent check its allowance under the same total
-    // deadline. Preparation/factory time has already consumed that deadline.
-    const checkAllowanceMs = Math.min(preflight.verification.timeoutMs ?? 60_000, timeBudget.remaining("check"));
-    const selectedWorkerMs = Math.min(workerTimeoutMs, timeBudget.remaining("worker"), Math.max(1, remainingTotalMs() - checkAllowanceMs));
+    // Reserve declared check time after preparation/factory work. Legacy calls
+    // without phase allowances keep their recorded worker limit and outer timer.
+    const checkPoolMs = timeBudget.remaining("check");
+    const checkAllowanceMs = Math.min(preflight.verification.timeoutMs ?? (checkPoolMs === Infinity ? 0 : 60_000), checkPoolMs);
+    const selectedWorkerMs = Math.min(workerTimeoutMs, timeBudget.remaining("worker"),
+      checkAllowanceMs === 0 ? Infinity : Math.max(1, remainingTotalMs() - checkAllowanceMs));
     if (timeBudget.exhausted() !== undefined && factoryError === undefined) {
       factoryError = `${timeBudget.exhausted()} cumulative time budget exhausted before worker`;
       executor = failedExecutor(factoryError);
@@ -646,7 +647,27 @@ export class NativeWriteSession {
     if (costAttempt !== undefined) task.limits = { ...task.limits, maxCostUsd: costAttempt.handle.remainingReferenceUsd };
     const workerStarted = performance.now();
     const costExecutor = factoryError === undefined && costAttempt !== undefined ? costAttempt.wrap(executor) : executor;
-    const running = startParentRun({ stateRoot: this.options.stateRoot, executor: hostAttempt?.wrap(costExecutor) ?? costExecutor }, {
+    let executorCompleted = false;
+    let executorFailed = false;
+    const settledExecutor: AgentExecutor = {
+      ...(costExecutor.supportedModelIds === undefined ? {} : { supportedModelIds: costExecutor.supportedModelIds }),
+      ...(costExecutor.steerText === undefined ? {} : { steerText: costExecutor.steerText.bind(costExecutor) }),
+      async *execute(request, workerSignal) {
+        let stoppedFinished: ExecutionEvent | undefined;
+        try {
+          for await (const event of costExecutor.execute(request, workerSignal)) {
+            // The coordinator drops post-timeout events. Drain them here first
+            // so host scope/protected-path guards after yield* still execute.
+            if (workerSignal.aborted) {
+              if (event.type === "EXECUTION_FINISHED") stoppedFinished = event;
+            } else yield event;
+          }
+          executorCompleted = true;
+          if (stoppedFinished !== undefined) yield stoppedFinished;
+        } catch (error) { executorFailed = true; throw error; }
+      }
+    };
+    const running = startParentRun({ stateRoot: this.options.stateRoot, executor: hostAttempt?.wrap(settledExecutor) ?? settledExecutor }, {
       projectRoot: session.worktree.cwd,
       objective,
       children: [task]
@@ -715,7 +736,8 @@ export class NativeWriteSession {
 
     // A FAILED self-report can be projected as BLOCKED by the parent tracking
     // gate. That advisory verdict must still reach the independent checker.
-    if (factoryError !== undefined || (outcome.status !== "COMPLETED" && outcome.status !== "FAILED" && outcome.status !== "BLOCKED")) {
+    if (factoryError !== undefined || executorFailed || !executorCompleted ||
+        (outcome.status !== "COMPLETED" && outcome.status !== "FAILED" && outcome.status !== "BLOCKED")) {
       const reason = factoryError === undefined
         ? `executor did not complete successfully (status=${outcome.status})`
         : `executor factory failed: ${factoryError}`;

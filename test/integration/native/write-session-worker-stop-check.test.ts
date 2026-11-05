@@ -26,6 +26,7 @@ interface Options {
   readonly afterWrite?: (context: NativeWriteExecutorFactoryInput) => void;
   readonly factoryError?: boolean;
   readonly omitExecution?: boolean;
+  readonly executorFailure?: boolean;
 }
 async function fixture(options: Options = {}) {
   const parent = path.resolve(".agent_workspace/worker-stop-check"); await mkdir(parent, { recursive: true });
@@ -72,13 +73,16 @@ async function fixture(options: Options = {}) {
           strictReferenceBudget: true, onExecutionCost: cost.onExecutionCost, referenceBudgetAdmission: cost.assertDispatchAllowed }) });
       cost?.bindExecutor(pi);
       if (options.omitExecution) return { async *execute() { yield { type: "EXECUTION_FINISHED", outcome: "FAILURE" }; } };
-      if (!options.hang) return pi;
       // Exercise the real coordinator deadline after a candidate-scoped write.
-      const executor: AgentExecutor = { async *execute(_request, signal) {
+      const executor: AgentExecutor = !options.hang ? pi : { async *execute(_request, signal) {
         await context.tools.find(tool => tool.name === "sparkle_write_file")!.execute("write", { path: "value.txt", contents: value }, signal);
         options.afterWrite?.(context);
         if (!signal.aborted) await new Promise<void>(resolve => signal.addEventListener("abort", () => resolve(), { once: true }));
         yield { type: "EXECUTION_FINISHED", outcome: "CANCELLED" };
+      } };
+      if (options.executorFailure) return { async *execute(request, signal) {
+        yield* executor.execute(request, signal);
+        throw new Error("synthetic host post-execution boundary refusal");
       } };
       return executor;
     } });
@@ -180,6 +184,15 @@ test("factory errors never authorize a check", { timeout: 60000 }, async () => {
     const result = await f.session.execute(f.input);
     assert.deepEqual(await f.checks(), []); assert.equal(result.loop?.stopReason, "executor-failed");
     assert.equal(result.acceptance.accepted, false);
+  } finally { await f.session.shutdown(); }
+});
+
+for (const hang of [false, true]) test(`host post-execution errors refuse checks after ${hang ? "timeout" : "worker report"}`, { timeout: 60000 }, async () => {
+  const f = await fixture({ hang, executorFailure: true });
+  try {
+    const result = await f.session.execute({ ...f.input, workerTimeoutMs: 1000 });
+    assert.equal(await readFile(path.join(result.candidatePath, "value.txt"), "utf8"), "good");
+    assert.deepEqual(await f.checks(), []); assert.equal(result.acceptance.accepted, false);
   } finally { await f.session.shutdown(); }
 });
 
