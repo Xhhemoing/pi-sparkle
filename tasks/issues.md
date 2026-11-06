@@ -199,7 +199,27 @@ Attempts 44 and 45 (2026-11-05) are the first new-ledger records. Both ran one T
 
 A private probe at 2026-11-06 05:43 UTC listed models with HTTP 200, but minimal completions on all five probed models returned 502 within one second. The outage therefore sat upstream of the gateway and was not specific to this task, model or request; its duration is unknown. a45 was the one permitted retry of a fixed infrastructure cause, so further attempts wait for a successful probe. A probe is an operator check, not an attempt.
 
+A probe at 2026-11-06 14:59 UTC completed on the configured model, and attempt 46 then ran normally (one invocation with complete usage). The outage ended between the two probes.
+
 Open consequences:
 
 - A dispatch that fails with an HTTP error before any tokens ends the attempt as `cost-unavailable`, because unknown cost is never treated as zero. A bounded in-attempt retry would need a new strict-cost reservation rule; that is an owner decision with Claude review and owner merge, and it would not help during a multi-hour upstream outage.
-- In the new ledger, provider is the only observed class (2 of 2). The owner's historical grouping had six provider-timeout or missing-usage endings among 31 non-correct attempts, two of them undiagnosed, behind preparation (13); that grouping is explanatory, not canonical. Attempts 44/45 do not count toward H2 because no checker ran.
+- In the new ledger, two of the three non-correct attempts are provider failures; the third is a run failure ([I-18](#i-18--exact-apply-refuses-git-texteol-attributes)). The owner's historical grouping had six provider-timeout or missing-usage endings among 31 non-correct attempts, two of them undiagnosed, behind preparation (13); that grouping is explanatory, not canonical. Attempts 44/45 do not count toward H2 because no checker ran.
+
+## I-18 — Exact apply refuses Git text/eol attributes
+
+Attempt 46 (2026-11-06) reused the a44 TaskSpec after the successful probe. The worker finished in one round (one invocation, about US$0.05 known cost). Both host checks passed, and the exact candidate and checker bytes were unchanged. The host chose apply. TaskSpec apply was admitted in the task-actions ledger and then refused before any source mutation: the source stayed at `eebd5c9` and clean, and the candidate is retained. Record: COMPLETED, accepted, not kept, failure class run, 0 interventions.
+
+Cause: before re-verification, `NativeApplySession.apply` checks Git attributes (`src/native/apply.ts`), and `assertAttributesPreserveBytes` (`src/execution/exact-snapshot.ts`) rejects any `text`, `eol`, `filter`, `ident` or `crlf` attribute that is not unset. The copy carries pi-sparkle's own `.gitattributes` (`* text=auto eol=lf`), so every path fails. A zero-model A/B reproduction on the same runtime used two synthetic repositories that differ only in that line, with a scripted executor and the same check. The first applied; the second refused with `exact snapshot: active Git text conversion attribute in worktree`. Test fixtures have no `.gitattributes` and set `core.autocrlf=false`, so CI never reaches this path.
+
+Consequences:
+
+- Stage A cannot pass on a pi-sparkle copy, or on any project whose `.gitattributes` sets `text` or `eol`, while the policy stands. The a46 candidate (+14/−1) remains a valid port-back candidate.
+- Preflight accepts such sources, so a paid attempt is spent before the refusal. The CLI replaces apply-stage errors with a generic message, and the ledger evidence says only that apply did not finish, so finding the cause took source reading and a reproduction.
+- A refusal after admission marks the claim needs-reconciliation even when no prepared target was persisted. TaskSpec has no reconciliation command, so the a46 claim stays open although no source effect occurred.
+
+Owner decision:
+
+- (a) Allow attributes whose conversion is provably the identity for the captured bytes, for example `text` or `text=auto` with `eol=lf` and no CR byte in any compared view, and add the same check to preflight with a specific refusal message. The current rule deliberately rejects even explicit disabling assignments because Git versions and macros differ, so this is a safety-core change: failing test first, Claude review, one serial local gate and owner merge.
+- (b) Keep the policy, add only the preflight check and message, and run stage A in a project without `text`/`eol` attributes. This excludes pi-sparkle itself. Removing `.gitattributes` from a copy would let apply run, but the copy would no longer represent the project.
+- Either way, choose how to reconcile the a46 claim.
