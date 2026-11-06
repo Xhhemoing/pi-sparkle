@@ -10,10 +10,10 @@ Rebuilt from observed Git, GitHub, CI and private-ledger state on 2026-11-06 and
 
 | Item | Observed state |
 |---|---|
-| Main | `ae5e2c5d` after the docs-only records tidy #149. Main CI [42234696141](https://github.com/Xhhemoing/pi-sparkle/actions/runs/42234696141) passed all five jobs. |
+| Main | `4fa01f63` after the records-only #151, which followed the records tidy #149 (`ae5e2c5d`). Main CI [42256970019](https://github.com/Xhhemoing/pi-sparkle/actions/runs/42256970019) passed all five jobs. |
 | Adopted since 2026-10-31 | #140 prepared Node artifacts through apply (`616ff427`); #143 ADR-012; #145 roadmap practices; #148 lets the host check decide after a worker stop (serial local gate exit 0 at `8afce3d4`, Claude NON-BLOCKING, owner merge). #138 is closed as superseded. |
 | #140 residual risk | The accepted incomplete Windows serial gate was rerun at `a5bc7e70` and exited 0 (private coordination record). Closed. |
-| Execution runtime | The ordinary E: worktree moved `280882b4` → `d15a9b1f` on 2026-11-05 (install, status and CLI help exit 0), then → `eb40e447` 23 s after #148 merged, before that main CI finished; the CI passed later. Dependency files are unchanged over `280882b4..eb40e447`, so the recorded installation applies. #149 is docs-only, so the runtime stays at `eb40e447`. |
+| Execution runtime | The ordinary E: worktree moved `280882b4` → `d15a9b1f` on 2026-11-05 (install, status and CLI help exit 0), then → `eb40e447` 23 s after #148 merged, before that main CI finished; the CI passed later. Dependency files are unchanged over `280882b4..eb40e447`, so the recorded installation applies. #149 and #151 are docs-only, so the runtime stays at `eb40e447`. |
 | New ledger | Attempts 44–46 used one TaskSpec: failure-class ranking in `real-task-summary.mjs`, in isolated copies at source `eebd5c9`. 44 and 45 FAILED at the first model dispatch (provider HTTP 502, [I-17](issues.md#i-17--new-ledger-provider-outage-before-host-checks)). 46 passed both host checks and was accepted, but apply was refused before any source mutation by the exact-apply attribute policy ([I-18](issues.md#i-18--exact-apply-refuses-git-texteol-attributes)). 0 correct deliveries in 3 attempts. This week US$10.05 is accounted: US$10 reserved for two unknown fees and US$0.05 known. |
 | Provider | A probe at 2026-11-06 14:59 UTC completed on the configured model, and attempt 46 ran normally. The I-17 outage is over. |
 | Open PRs | #144 (rebased #103, `692048e2`): seven hosted checks green; Claude NON-BLOCKING. #146 (draft, `d8aa044a`): five hosted checks green; local gate exit 1 with one cancelled test; Claude BLOCKING. [#150](https://github.com/Xhhemoing/pi-sparkle/pull/150) (`2bf066aa`): operator-guide correction; five hosted checks green; Claude NON-BLOCKING; owner merge. #147 is closed as superseded. |
@@ -24,7 +24,7 @@ Rebuilt from observed Git, GitHub, CI and private-ledger state on 2026-11-06 and
 One real Node task completes prepare → execute → host check → apply, and the original project's checks pass after apply.
 
 - Status: attempt 46 reached apply and was refused by the exact-apply attribute policy, because pi-sparkle's `.gitattributes` sets `text`/`eol` ([I-18](issues.md#i-18--exact-apply-refuses-git-texteol-attributes)). The provider dependency is resolved.
-- Dependency: the owner's I-18 decision. Under (a), a test-first fix lands first (safety core: Claude review, one serial local gate, owner merge); attempt 47 then reuses the a44 TaskSpec on a fresh copy, a changed condition rather than an unchanged retry. Under (b), stage A needs a task in a project without `text`/`eol` attributes. Until then, do not spend attempt slots on pi-sparkle copies; they cannot apply.
+- Dependency: the owner's I-18 decision. Under (a), a test-first fix lands first (safety core: Claude review, one serial local gate, owner merge); attempt 47 then reuses the a44 TaskSpec on a fresh copy, a changed condition rather than an unchanged retry. Under (b), stage A needs a task in a project without `text`/`eol` attributes, and no local project qualifies today (I-18 scope). Until then, do not spend attempt slots on pi-sparkle copies; they cannot apply. The open a46 claim does not block a fresh copy.
 - Delivery: apply in the isolated copy counts as delivery; porting the change back is one intervention through an ordinary test-first PR, whose CI is the original-project check. That PR also closes the stage B failure-ranking item; the retained a46 candidate is its starting point.
 - A bounded retry for zero-token HTTP-error dispatches would change strict-cost handling, so it needs owner approval, Claude review and owner merge.
 - Not blocking stage A: #144 (needed only for tasks on the full pi-sparkle checkout), the Git < 2.36 refusal (local Git is 2.54) and #146.
@@ -85,7 +85,7 @@ The essential goal is to make Pi deliver real changes more correctly and efficie
 
 | Item | Required decision |
 |---|---|
-| Exact apply attributes ([I-18](issues.md#i-18--exact-apply-refuses-git-texteol-attributes)) | (a) allow identity-only `text`/`eol` conversion with a matching preflight check, or (b) add only the preflight check and run stage A outside pi-sparkle; and how to reconcile the open a46 apply claim. |
+| Exact apply attributes ([I-18](issues.md#i-18--exact-apply-refuses-git-texteol-attributes)) | (a) allow identity-only `text`/`eol` conversion with a matching preflight check, which admits fresh pi-sparkle copies but not Soul's 21 `eol=crlf` files; or (b) add only the preflight check and run stage A elsewhere, although no local project currently qualifies. Also decide how to reconcile the open a46 apply claim, which blocks only its own copy. |
 | Provider retry | Optional: a bounded strict-cost retry design for zero-token HTTP-error dispatches ([I-17](issues.md#i-17--new-ledger-provider-outage-before-host-checks)); the outage itself is over. |
 | Attempts after 49 | ADR-012 authorizes 44–49 only; stage B's five distinct tasks need more. |
 | Prepared dependencies | A larger prepared-artifact budget or checks against an existing installation, before any task with `node_modules` (including Soul). |
