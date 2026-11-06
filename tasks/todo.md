@@ -2,7 +2,7 @@
 
 See the [current checkpoint](plan.md#current-execution-checkpoint-2026-10-26), [issue log](issues.md#i-18--exact-apply-refuses-git-texteol-attributes), [ADR011](../docs/decisions/0011-real-task-improvement-loop.md) and [ADR012](../docs/decisions/0012-three-pillar-architecture.md). Unfinished work only.
 
-- [ ] 协调者（阶段A）：I-18由owner定方向后，（a）先写失败测试再修exact apply属性策略并同步preflight（安全核心：Claude评审、串行gate、owner合并），随后第47次在新副本复用a44 TaskSpec走到apply；或（b）只加preflight检测与明确拒绝，阶段A换到无text/eol属性的项目。≤ US$5，记入canonical私有账本；此前不用pi-sparkle副本消耗尝试名额。
+- [ ] 协调者（阶段A）：I-18由owner定方向后，（a）先写失败测试再修exact apply属性策略并同步preflight（安全核心：Claude评审、串行gate、owner合并），随后第47次在新副本复用a44 TaskSpec走到apply；或（b）只加preflight检测与明确拒绝，阶段A换到无text/eol属性的项目（本机目前没有）。≤ US$5，记入canonical私有账本；此前不用pi-sparkle副本消耗尝试名额。
 - [ ] 协调者（阶段B）：私有队列q01–q05已重建，零模型preflight全部通过，均在pi-sparkle副本上、受I-18阻塞；q01为无具体失败的预防性检查，排最后或弃用。I-18解决后第47–49次跑不同任务，记录检查/应用/介入/各阶段时长/费用覆盖/失败类。
 - [ ] 协调者（阶段B）：summary失败类别排序：a46候选（+14/−1）已过宿主检查并保留，阶段A走通后由移植PR完成；返工次数与可得的分阶段token另开普通PR，先写失败测试。
 - [ ] 协调者：#144 Claude NON-BLOCKING已转发；补Windows两组聚焦测试与typecheck、一次串行gate、含#148的新CI后交owner合并（内存不足时暂缓）；prepared容量另议。

@@ -218,8 +218,16 @@ Consequences:
 - Preflight accepts such sources, so a paid attempt is spent before the refusal. The CLI replaces apply-stage errors with a generic message, and the ledger evidence says only that apply did not finish, so finding the cause took source reading and a reproduction.
 - A refusal after admission marks the claim needs-reconciliation even when no prepared target was persisted. TaskSpec has no reconciliation command, so the a46 claim stays open although no source effect occurred.
 
+Scope, from read-only checks on 2026-11-06:
+
+- The check covers every path of the full before and after trees (`git ls-tree -r --full-tree`) and of the snapshot, not only changed paths.
+- pi-sparkle: all 1,769 tracked paths inherit `text=auto eol=lf`, none uses `eol=crlf`, and three binary assets keep `eol=lf` with `text` unset, which the current rule also rejects. The only CR byte in a tracked text file was a corrupted line in `docs/quality/pi-sparkle-architecture.md`: escaped backticks passed through a PowerShell string had become a backspace and a carriage return. It is restored from the matching HTML. Fresh copies then meet the identity condition in (a). A checkout whose worktree still holds CRLF bytes under `eol=lf` does not; the primary checkout has 457 such files.
+- Soul: all 1,286 tracked paths carry `text` or `eol`, and 21 PowerShell files use `eol=crlf`. That conversion changes bytes on checkout, so (a) alone does not admit Soul copies.
+- The only other local Node project checked has `text`/`eol` on 447 of 4,314 paths, so under (b) no local project is currently eligible for stage A.
+- The open a46 claim blocks only apply or discard on its own copy: the TaskSpec admission conflict predicate compares `sourceRepo` (`src/development/task-session.ts`). It does not block attempt 47 in a fresh copy.
+
 Owner decision:
 
-- (a) Allow attributes whose conversion is provably the identity for the captured bytes, for example `text` or `text=auto` with `eol=lf` and no CR byte in any compared view, and add the same check to preflight with a specific refusal message. The current rule deliberately rejects even explicit disabling assignments because Git versions and macros differ, so this is a safety-core change: failing test first, Claude review, one serial local gate and owner merge.
-- (b) Keep the policy, add only the preflight check and message, and run stage A in a project without `text`/`eol` attributes. This excludes pi-sparkle itself. Removing `.gitattributes` from a copy would let apply run, but the copy would no longer represent the project.
+- (a) Allow attributes whose conversion is provably the identity for the captured bytes, for example `text` or `text=auto` with `eol=lf` and no CR byte in any compared view, or `text` unset, where Git ignores `eol`; add the same check to preflight with a specific refusal message. The current rule deliberately rejects even explicit disabling assignments because Git versions and macros differ, so this is a safety-core change: failing test first, Claude review, one serial local gate and owner merge.
+- (b) Keep the policy, add only the preflight check and message, and run stage A in a project without `text`/`eol` attributes. This excludes pi-sparkle itself and, per the scope above, every local project checked. Removing `.gitattributes` from a copy would let apply run, but the copy would no longer represent the project.
 - Either way, choose how to reconcile the a46 claim.
