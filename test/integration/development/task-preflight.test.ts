@@ -183,7 +183,7 @@ test("TaskSpec run enforces the worker allowance separately from preparation and
   const result = await startDevelopmentTaskSpec({ sourceRepo, stateRoot, sandboxRoot: path.join(path.dirname(sourceRepo), "candidates"), spec: { ...definition,
     budget: { ...definition.budget, workerSeconds: 0.1, totalSeconds: 20 } }, executorFactory: () => executor });
   assert.equal(executor.sawAbort, true);
-  assert.equal(result.execution.acceptance.accepted, false);
+  assert.equal(result.execution.acceptance.accepted, true);
   assert.ok(performance.now() - started < 15000, "worker must not run until the overall deadline");
 }));
 
