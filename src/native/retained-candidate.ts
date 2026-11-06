@@ -20,7 +20,8 @@ interface HeldCandidate {
   readonly prepared?: { readonly artifacts: PreparedNodeArtifacts; readonly delivery: DeliveryProof };
 }
 const heldCandidates = new WeakMap<RetainedCandidateHandle, HeldCandidate>();
-const limits = { maxFiles: 1024, maxBytes: 16 * 1024 * 1024 };
+// Whole-tree ownership and apply use the same finite capacity; scoped checker limits stay independent.
+export const WHOLE_CANDIDATE_SNAPSHOT_LIMITS = Object.freeze({ maxFiles: 4096, maxBytes: 32 * 1024 * 1024 });
 function fail(message: string): never { throw new DomainValidationError(`retained candidate: ${message}`); }
 function git(cwd: string, args: readonly string[]): string {
   const result = spawnSync("git", ["--no-replace-objects", ...args], {
@@ -57,7 +58,7 @@ export function holdRetainedCandidate(input: RetainedCandidateHandle,
         identity.sourceRevision !== handle.sourceRevision) fail("prepared ownership does not match retained candidate");
     assertPreparedDelivery(prepared.artifacts, prepared.delivery);
   }
-  const snapshot = prepared === undefined ? captureExactSnapshot(handle.candidatePath, {}, limits) : preparedDeliverySnapshot(prepared.artifacts, prepared.delivery);
+  const snapshot = prepared === undefined ? captureExactSnapshot(handle.candidatePath, {}, WHOLE_CANDIDATE_SNAPSHOT_LIMITS) : preparedDeliverySnapshot(prepared.artifacts, prepared.delivery);
   const indexTree = git(handle.candidatePath, ["write-tree"]).trim();
   heldCandidates.set(handle, { authorization, snapshot, indexTree, ...(prepared === undefined ? {} : { prepared }) });
   assertRetainedCandidate(handle);
@@ -74,7 +75,7 @@ export function assertRetainedCandidate(handle: RetainedCandidateHandle, prepare
     !sameIdentity(current.candidateIdentity, held.authorization.candidateIdentity)) fail("repository or candidate identity changed");
   assertUnlocked(handle.sourceRepo, handle.candidatePath);
   if (held.prepared === undefined) {
-    if (!sameExactSnapshot(held.snapshot, captureExactSnapshot(handle.candidatePath, {}, limits))) fail("held candidate bytes or file set changed");
+    if (!sameExactSnapshot(held.snapshot, captureExactSnapshot(handle.candidatePath, {}, WHOLE_CANDIDATE_SNAPSHOT_LIMITS))) fail("held candidate bytes or file set changed");
   } else assertPreparedDelivery(held.prepared.artifacts, held.prepared.delivery);
   if (git(handle.candidatePath, ["write-tree"]).trim() !== (preparedIndexTree ?? held.indexTree)) fail("held candidate index changed");
 }
