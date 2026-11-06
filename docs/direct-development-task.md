@@ -1,5 +1,12 @@
 # Direct development task (experimental host entry)
 
+This lower-level Native host API is separate from the [TaskSpec path](taskspec.md),
+which adds explicit preparation, baseline expectations and a live apply/discard
+session. A [work-item draft adapter](taskspec.md#author-a-taskspec-from-a-work-item)
+connects queue definitions to TaskSpec without changing queue lifecycle.
+The [contribution SDK](sdk.md) exposes read-only context/diagnostics, not these
+experimental execution APIs. See the [module relationships](framework.md#板块之间通过什么关联).
+
 `startDevelopmentTask` runs one isolated development task with the existing
 `NativeWriteSession`. The host supplies a clean Git source repository, objective,
 executor factory and verification command. A project queue, monetary limit,

@@ -32,12 +32,14 @@ flowchart TB
     L -.记录与对账.-> A
   end
   A --> S[用户源仓库 · 只在明确应用后改变]
-  Q[可选项目队列 · 选下一件事] --> T
+  Q[可选项目队列 · 选下一件事] -.宿主补齐输入 · 纯草稿桥接.-> T
+  Q --> QN[现有 develop · NativeWriteSession · 队列自身生命周期]
+  QN -.复用候选与检查内核.-> V
   O[可选离线改进 · 失败归因与提案] -.经批准的资源.-> T
   D -.全部结果含失败与未知.-> O
 ```
 
-这张图表示职责，不意味着新增服务、数据库或一套状态机。准备和检查命令自身仍可能产生外部效果；零模型不是零风险，候选 worktree 不是 OS 沙箱。
+这张图表示职责，不意味着新增服务、数据库或一套状态机。当前 `develop` 直接调用 Native，不经过 TaskSpec 的准备、基础预期与美元预算；虚线表示可复用关系，不代表两种生命周期已经统一。宿主可用 [工作项草稿桥接](taskspec.md#author-a-taskspec-from-a-work-item) 显式补齐输入后进入 TaskSpec；桥接不会改动队列状态。准备和检查命令自身仍可能产生外部效果；零模型不是零风险，候选 worktree 不是 OS 沙箱。
 
 ## 3. 五个公共概念
 
@@ -69,14 +71,15 @@ Standalone preflight 使用自己的临时候选，不能把它当作下一次 t
 | 候选与验收内核 | `src/native/`、`src/execution/`、`src/context/` | 工作区、受控工具、精确检查、apply、取消与效果结算 |
 | Pi 执行适配 | `src/pi-adapter/pi-executor.ts`、`coding-session.ts`、`native-write-executor.ts` | 受控 SDK session、模型传输与工具、用量和生命周期；不默认发现全部宿主资源 |
 | 事实与存储 | `src/development/action-ledger.ts`、`src/persist/`、`src/run/`、`src/telemetry/`、Git | 分别保存工作项、事件、收据、用量和源码事实；不新增重复的项目真相源 |
-| 可选项目推进 | `controller.ts`、`work-item-store.ts`、`advance-project.ts`、`batch.ts` | 选下一件事、认领、依赖与有限 batch；`runNext()` 自己在锁内认领，外层不再抢先 claim |
+| 可选项目推进 | `src/development/controller.ts`、`work-item-store.ts`、`advance-project.ts`、`batch.ts` | 现有队列直接调用 Native；选下一件事、认领、依赖与有限 batch；`runNext()` 自己在锁内认领，外层不再抢先 claim |
+| 工作项到 TaskSpec 草稿 | [`work-item-task-spec.ts`](../src/development/work-item-task-spec.ts) | 保留工作项目标、范围和全部验收命令；宿主明确提供 context、prepare、基础预期与预算。不执行、不认领、不更新队列 |
 | 可选离线改进 | `src/lab/`；旧路径有兼容/历史代码 | 从真实结果归因、提出模板/上下文/检查/模型配置建议；批准与晋升不能由候选 JSON 自授 |
 
 目录目前比概念架构多，存在旧 run/flowchart/controller 路径和兼容转发。**概念收敛不等于立即搬空所有目录。** 先查实际调用与默认 import closure；确认无消费者的代码才删除，既有命令先保留兼容或给出迁移说明。
 
 ## 6. 三个板块与成熟度（ADR-012）
 
-产品分三块，但只有 TaskSpec 核心这一条执行路径。三块共用验收与应用内核、宿主授权策略、预算与对账、尝试记录，以及 ADR-011 的自进化反馈环。
+ADR-012 要求新执行能力收敛到 TaskSpec 核心。当前 TaskSpec 与旧队列仍是两个应用入口，共享部分 Native 候选/检查机制，准备、预算和生命周期尚未全部统一。三块的目标是共用验收与应用内核、宿主授权策略、预算与对账、尝试记录，以及 ADR-011 的自进化反馈环；不能把目标架构当作旧入口已具备的能力。
 
 | 板块 | 现在（L0） | 下一级（L1，已解冻） | 仍冻结 |
 |---|---|---|---|
@@ -86,6 +89,18 @@ Standalone preflight 使用自己的临时候选，不能把它当作下一次 t
 | 3b Worker 池 | 单 worker，加只读委派 | 异家族只读审查，只作参考 | 动态团队；并行（L2）要等长任务达到 L1 |
 
 旧的 run/flowchart/supervisor/track/children、cluster 邮箱和 bandit/R1 只做维护。有用的部分按需迁入核心；确认没有调用者之后才删除，不整包恢复。每项主动能力都由宿主设为 `off`、`observe` 或 `auto`；权限、凭据和安全设置永远不进 `auto`。
+
+### 板块之间通过什么关联
+
+| 交接 | 现有类型 / 入口 | 保留的信息与边界 |
+|---|---|---|
+| 队列定义 → 单任务草稿 | `WorkItemDefinition` → `authorTaskSpecFromWorkItem` → `DevelopmentTaskSpec` | 返回 `workItemId` 供宿主关联；不继承 claim、依赖完成状态或应用权限 |
+| 检查配方 → TaskSpec 检查 | `WorkItemRecipe` → `DevelopmentCheckDefinition` → `DevelopmentTaskCheck` | 复用 id、command/args、verifierVersion、保护路径及限额；TaskSpec 另需明确基础预期 |
+| TaskSpec → Worker | `TaskSpecSession` → `NativeWriteSession` → Pi executor | 宿主选择模型与受控工具；工作项或模型文本不能授予新权限 |
+| 执行 → 历史证据 | `runId`、artifact、队列 `actionId` / `itemId` | 引用用于追溯；[Task Verdict](taskspec.md#read-a-historical-verdict) 与 [队列 review](development-agent-loop.md#查看候选的历史证据) 的输入格式不同 |
+| 只读扩展 → 宿主上下文 | [Contribution SDK](sdk.md) | 返回 context/diagnostic 数据；宿主显式选择后才能参与任务，不自动获得写入工具 |
+
+草稿桥接的纯映射边界见 [单元测试](../test/unit/development/work-item-task-spec.test.ts)，从现有队列定义到 preflight、候选检查、显式 apply 的实际合成流程见 [集成测试](../test/integration/development/work-item-task-spec.test.ts)。这些测试不证明真实模型收益，也不代表队列运行时已迁移。
 
 ## 7. 当前已经有与仍然缺的能力
 
@@ -98,6 +113,8 @@ Standalone preflight 使用自己的临时候选，不能把它当作下一次 t
 
 - [任务操作与限制](taskspec.md)：实际 CLI/API、preflight、task-run 与应用。
 - [直接任务入口](direct-development-task.md)：宿主嵌入与候选工具。
+- [项目队列](development-agent-loop.md)：现有 `develop`、认领、历史 review 与 accept。
+- [只读贡献 SDK](sdk.md)：上下文与诊断扩展，不授予执行权限。
 - [未来开发计划](roadmap.md)：顺序、交付与停止条件。
 - [ADR-012](decisions/0012-three-pillar-architecture.md)：三板块、成熟度等级与解冻范围。
 - [当前执行计划](../tasks/plan.md)：唯一活动队列与实际候选状态。

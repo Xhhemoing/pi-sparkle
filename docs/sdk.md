@@ -6,6 +6,12 @@ ships physical JavaScript and declaration forwarders to `dist/sdk/`; it adds no
 `exports` or `main` resolver. Existing deep imports remain available, but this
 SDK does not make every internal path a stable public API.
 
+For task execution use the experimental [TaskSpec host path](taskspec.md) or
+[direct Native host entry](direct-development-task.md). Queue definitions can
+be [authored into TaskSpec drafts](taskspec.md#author-a-taskspec-from-a-work-item)
+by the host. Contribution data does not automatically join those tasks, select
+models or obtain write/apply authority; the host must explicitly choose it.
+
 ## Host a contribution
 
 ```ts

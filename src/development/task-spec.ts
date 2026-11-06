@@ -67,6 +67,10 @@ function array(value: unknown, maximum: number, minimum = 0): unknown[] {
   }
   return copied;
 }
+/** Internal authoring helpers use the same own-data array boundary as TaskSpec. */
+export function snapshotTaskSpecHostArray<T>(value: readonly T[], maximum: number, minimum = 0): readonly T[] {
+  return Object.freeze(array(value, maximum, minimum)) as readonly T[];
+}
 function text(value: unknown, maximum: number, allowEmpty = false): string {
   if (typeof value !== "string" || value.includes("\0") || value.length > maximum || (!allowEmpty && value.trim() === "")) fail(`expected a bounded string of at most ${maximum} characters`);
   return value;

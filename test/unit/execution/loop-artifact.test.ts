@@ -73,6 +73,26 @@ test("save/read round-trip uses an opaque id and does not content-address", asyn
   }
 });
 
+test("save/read preserves exact UTF8 length when the byteLength field crosses a decimal width boundary", async () => {
+  const stateRoot = await mkdtemp(path.join(tmpdir(), "g1b-width-")), runId = createRunId();
+  await seedDurableRun(stateRoot, runId);
+  try {
+    for (const target of [997, 998, 999, 9996, 9997, 9998, 9999, 10000, 99995, 99996, 99997, 99998, 99999]) {
+      const id = `art_v2_${randomUUID()}`, body = { value: "界" };
+      const bare = () => Buffer.byteLength(`${JSON.stringify({ schemaVersion: "loop-artifact-v2", runId, id, body, byteLength: 0 }, null, 2)}\n`, "utf8");
+      body.value += "x".repeat(target - bare());
+      assert.equal(bare(), target);
+      const ref = await saveLoopArtifact({ stateRoot, runId, id, body });
+      const stored = await readFile(ref.path, "utf8"), envelope = JSON.parse(stored) as { byteLength: number };
+      assert.equal(Buffer.byteLength(stored, "utf8"), ref.byteLength, `bare size ${target}`);
+      assert.equal(envelope.byteLength, ref.byteLength);
+      assert.deepEqual(await readLoopArtifact(stateRoot, runId, ref.id), body);
+    }
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
 test("equal-length replacement is not claimed as detected when schema and length still match", async () => {
   const stateRoot = await mkdtemp(path.join(tmpdir(), "g1b-art-"));
   const runId = createRunId();
