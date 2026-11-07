@@ -12,8 +12,10 @@ import { captureExactSnapshot, sameExactSnapshot } from "../execution/exact-snap
 import { captureWorktreeFingerprint } from "../execution/worktree-snapshot.js";
 import { snapshotDevelopmentTaskSpec, snapshotTaskSpecHostInput, type DevelopmentTaskSpec, type DevelopmentTaskPreparation } from "./task-spec.js";
 import { DEFAULT_RECIPE_OUTPUT_BYTES, DEFAULT_RECIPE_TIMEOUT_MS } from "./work-items.js";
-import { classifyTaskCheckRefusal, type TaskCheckRefusal } from "./task-check-refusal.js";
-import { snapshotDevelopmentCheckPlan, visibleDevelopmentCriteria, renderVisibleDevelopmentChecks } from "./check-plan.js";
+import { classifyTaskCheckRefusal, sourceNotApplicableRefusal, type TaskCheckRefusal } from "./task-check-refusal.js";
+import { prepareDevelopmentCheckPlan, snapshotDevelopmentCheckPlan, visibleDevelopmentCriteria, renderVisibleDevelopmentChecks } from "./check-plan.js";
+import { prepareTrustedVerification, type TrustedVerificationDescriptor } from "../execution/trusted-verification.js";
+import { assertSourceApplicable } from "../native/apply.js";
 export interface TaskPreflightInput {
   readonly candidatePath: string;
   readonly sourceRepo?: string;
@@ -65,6 +67,14 @@ export function assertPreparedPreflight(result: TaskPreflightResult): void {
   lookupPreparedNodeArtifacts(result);
   const prepared = preparedPreflights.get(result);
   if (prepared !== undefined) assertPreparedDelivery(prepared.artifacts, prepared.delivery);
+}
+/** A fresh host issuance of the whole-candidate descriptor that TaskSpec apply checks against. */
+export function taskSpecApplyVerification(spec: DevelopmentTaskSpec): TrustedVerificationDescriptor {
+  const planned = prepareDevelopmentCheckPlan({ scopePolicy: { allowedScope: spec.write.allow, protectedPaths: spec.write.protect },
+    checks: spec.checks.map(({ expect: _expect, ...check }) => check), ...(spec.limits === undefined ? {} : { snapshotLimits: spec.limits.snapshot }) });
+  const descriptor = planned.verification.trustedVerification!;
+  return prepareTrustedVerification({ command: planned.verification.command, args: planned.verification.args ?? [],
+    checkerFiles: descriptor.checkerFiles, snapshotManifest: {}, maxSnapshotFiles: descriptor.maxSnapshotFiles, maxSnapshotBytes: descriptor.maxSnapshotBytes });
 }
 /** Resolve existing ancestors before checking native path containment (including Windows case aliases). */
 export function assertTaskSpecStateOutside(rootPath: string, statePath: string): void {
@@ -154,6 +164,15 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
   try {
     ensureActive();
     input.verifySource?.();
+    if (input.sourceRepo !== undefined) {
+      const applyVerification = taskSpecApplyVerification(spec);
+      try { assertSourceApplicable(input.sourceRepo, applyVerification); }
+      catch (error) {
+        if (!(error instanceof DomainValidationError)) throw error;
+        refusal = sourceNotApplicableRefusal(error.message);
+        throw new DomainValidationError(`${refusal.code}: ${refusal.message} ${refusal.next}`);
+      }
+    }
     const initial = captureWorktreeFingerprint(candidate);
     if (initial.headRevision !== input.sourceRevision || initial.entries.length !== 0) throw new DomainValidationError("preflight requires the unchanged candidate base revision");
     const checkPlan = snapshotDevelopmentCheckPlan({ checks: spec.checks.map(({ expect: _expect, ...check }) => check) });

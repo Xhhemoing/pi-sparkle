@@ -211,7 +211,7 @@ test("explicit preparation limits are admitted before downstream enforcement/rec
     assert.equal(result.execution.acceptance.accepted, false, "final verification must use the original declared snapshot byte limit");
     assert.equal(await readFile(path.join(input.sourceRepo, "value.txt"), "utf8"), "before");
   }));
-  await t.test("apply reverification honors the whole-source snapshot declaration without source mutation", async () => fixture(async input => {
+  await t.test("a whole source over the snapshot declaration is refused before dispatch without source mutation", async () => fixture(async input => {
     await writeFile(path.join(input.sourceRepo, "outside.txt"), "x".repeat(limits.snapshot.maxBytes + 1), "utf8");
     git(input.sourceRepo, ["add", "outside.txt"]); git(input.sourceRepo, ["-c", "commit.gpgsign=false", "commit", "-m", "synthetic large source"]);
     const revision = git(input.sourceRepo, ["rev-parse", "HEAD"]);
@@ -223,9 +223,11 @@ test("explicit preparation limits are admitted before downstream enforcement/rec
         await context.tools.find(tool => tool.name === "sparkle_write_file")!.execute("fix", { path: "value.txt", contents: "after" }, signal);
         yield* new ProtocolChildExecutor().execute(request, signal);
       } }) });
-      assert.equal(run.accepted, true, "scoped checking can accept before whole-source apply reverification");
-      assert.equal(dispatches, 1);
-      await assert.rejects(session.apply(run.runId), /byte|limit|snapshot/i);
+      assert.equal(run.accepted, false, "exact apply would refuse this source, so no attempt is spent");
+      assert.equal(run.refusal?.code, "SOURCE_NOT_APPLICABLE");
+      assert.match(run.refusal?.message ?? "", /byte|limit|snapshot/i);
+      assert.equal(dispatches, 0);
+      await assert.rejects(session.apply(run.runId));
       assert.equal(git(input.sourceRepo, ["rev-parse", "HEAD"]), revision);
       assert.equal(await readFile(path.join(input.sourceRepo, "value.txt"), "utf8"), "before");
       assert.equal(git(input.sourceRepo, ["status", "--porcelain=v1", "--ignored"]), "");

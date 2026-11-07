@@ -101,15 +101,25 @@ test("projection attributes refuse active conversion from repository metadata", 
   const root = fixture(t);
   const tree = stage(root);
   const snapshot = projection(root);
-  for (const attribute of ["text", "eol=lf", "filter=fixture", "ident", "working-tree-encoding=UTF-16", "crlf"]) {
+  for (const attribute of ["text eol=crlf", "eol=crlf", "filter=fixture", "ident", "working-tree-encoding=UTF-16", "crlf"]) {
     fs.writeFileSync(path.join(root, ".git", "info", "attributes"), `src/index.ts ${attribute}\n`, "utf8");
     assert.throws(() => exact.assertProjectionGitAttributesPreserveBytes(snapshot, root, { beforeTree: tree, afterTree: tree }), { name: "DomainValidationError", message: /attribute|transform/i });
   }
 });
 
+test("projection attributes accept LF text conversion and refuse CR bytes outside the excluded prepared subtree", (t) => {
+  const root = fixture(t);
+  fs.writeFileSync(path.join(root, ".gitattributes"), "* text=auto eol=lf\n", "utf8");
+  fs.writeFileSync(path.join(root, "node_modules", "fixture", "nested", "dependency.js"), "prepared\r\n", "utf8");
+  const tree = stage(root);
+  assert.doesNotThrow(() => exact.assertProjectionGitAttributesPreserveBytes(projection(root), root, { beforeTree: tree, afterTree: tree }));
+  fs.writeFileSync(path.join(root, "src", "index.ts"), "export const answer = 42;\r\n", "utf8");
+  assert.throws(() => exact.assertProjectionGitAttributesPreserveBytes(projection(root), root, { beforeTree: tree, afterTree: tree }), { name: "DomainValidationError", message: /attribute|transform/i });
+});
+
 test("projection attributes inspect both immutable trees despite worktree and index masking", (t) => {
   const root = fixture(t);
-  fs.writeFileSync(path.join(root, ".gitattributes"), "src/index.ts text\n", "utf8");
+  fs.writeFileSync(path.join(root, ".gitattributes"), "src/index.ts eol=crlf\n", "utf8");
   const transformed = stage(root);
   fs.writeFileSync(path.join(root, ".gitattributes"), "src/index.ts -text\n", "utf8");
   const safe = stage(root);

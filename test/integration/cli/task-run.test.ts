@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import { access, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -22,7 +23,7 @@ function git(cwd: string, args: string[]): string {
   const result = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
   assert.equal(result.status, 0, result.stderr); return result.stdout.trim();
 }
-async function fixture(options: { unpriced?: boolean; invalid?: boolean; onRequest?: () => void; fixedProfiles?: boolean; failFixed?: boolean } = {}) {
+async function fixture(options: { unpriced?: boolean; invalid?: boolean; onRequest?: () => void; fixedProfiles?: boolean; failFixed?: boolean; attributes?: string } = {}) {
   const parent = path.resolve(".agent_workspace/phase1-task-cli");
   await mkdir(parent, { recursive: true });
   const root = await mkdtemp(path.join(parent, "actual-cli-"));
@@ -35,6 +36,7 @@ async function fixture(options: { unpriced?: boolean; invalid?: boolean; onReque
   const checker = "const f=require('node:fs');f.appendFileSync(process.argv[2],'checked\\n');if(f.readFileSync('value.txt','utf8')!=='after'){console.log(JSON.stringify({assertion:'value-regression',outcome:'failed'}));process.exit(1)}";
   await writeFile(path.join(source, "checks/business.cjs"), checker, "utf8");
   await writeFile(path.join(source, "checks/private.cjs"), `console.error(${JSON.stringify(PRIVATE_OUTPUT)})`, "utf8");
+  if (options.attributes !== undefined) await writeFile(path.join(source, ".gitattributes"), options.attributes, "utf8");
   git(source, ["init", "-b", "fixture"]); git(source, ["config", "core.autocrlf", "false"]);
   git(source, ["config", "user.name", "Task CLI synthetic"]); git(source, ["config", "user.email", "fixture@example.invalid"]);
   git(source, ["add", "."]); git(source, ["-c", "commit.gpgsign=false", "commit", "-m", "synthetic"]);
@@ -259,6 +261,46 @@ for (const [mode, expectedCode] of [["type-error", "TS_UNDECLARED_RED"], ["missi
     } finally { await f.provider.close(); }
   });
 }
+
+test("actual task run refuses a source exact apply would refuse before model dispatch", { timeout: 180000 }, async () => {
+  const f = await fixture({ attributes: "value.txt eol=crlf\n" });
+  try {
+    const output = await f.run();
+    assert.equal(output.code, 1); assert.equal(f.provider.requests.length, 0);
+    const run = output.records.find(record => record.type === "TASKSPEC_EXECUTION");
+    assert.ok(run, output.stdout); assert.equal(run.accepted, false); assert.equal(run.effectsSettled, true);
+    const refusal = run.refusal as { code: string; category: string; message: string; next: string };
+    assert.equal(refusal?.code, "SOURCE_NOT_APPLICABLE"); assert.equal(refusal.category, "infrastructure");
+    assert.match(refusal.message, /line-ending attribute/);
+    assert.ok(output.stderr.includes(refusal.message)); assert.ok(output.stderr.includes(refusal.next));
+    assert.equal(git(f.source, ["rev-parse", "HEAD"]), f.revision); assert.equal(await readFile(path.join(f.source, "value.txt"), "utf8"), "before");
+  } finally { await f.provider.close(); }
+});
+
+test("actual task run applies to a source with a whole-repository text=auto eol=lf rule", { timeout: 180000 }, async () => {
+  const f = await fixture({ attributes: "* text=auto eol=lf\n" });
+  try {
+    const output = await f.run(["--review"], "apply\n");
+    assert.equal(output.code, 0, output.stderr);
+    assert.ok(output.records.some(record => record.type === "TASKSPEC_APPLICATION" && record.reverified === true));
+    assert.equal(await readFile(path.join(f.source, "value.txt"), "utf8"), "after");
+    assert.equal(git(f.source, ["status", "--porcelain=v1", "--untracked-files=all"]), "");
+  } finally { await f.provider.close(); }
+});
+
+test("actual task run shows the host reason when apply refuses before re-verification", { timeout: 180000 }, async () => {
+  let source = "";
+  const f = await fixture({ onRequest: () => { writeFileSync(path.join(source, ".git", "info", "attributes"), "value.txt eol=crlf\n", "utf8"); } });
+  source = f.source;
+  try {
+    const output = await f.run(["--review"], "apply\n");
+    assert.equal(output.code, 1);
+    const report = JSON.parse(output.stderr.trim().split("\n").at(-1)!) as { stage: string; message: string };
+    assert.equal(report.stage, "apply");
+    assert.match(report.message, /line-ending attribute/);
+    assert.equal(git(f.source, ["rev-parse", "HEAD"]), f.revision); assert.equal(await readFile(path.join(f.source, "value.txt"), "utf8"), "before");
+  } finally { await f.provider.close(); }
+});
 
 for (const reason of ["invalid", "unpriced"] as const) test(`actual task run ${reason} refuses with zero model dispatch`, { timeout: 180000 }, async () => {
   const f = await fixture({ [reason]: true });

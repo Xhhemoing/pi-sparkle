@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { createEvidenceId, createMessageId } from "../../../src/domain/ids.js";
 import { nowIso } from "../../../src/domain/timestamp.js";
 import { prepareTrustedVerification } from "../../../src/execution/trusted-verification.js";
-import { NativeApplySession } from "../../../src/native/apply.js";
+import { ApplyPreconditionRefusal, NativeApplySession } from "../../../src/native/apply.js";
 import { NativeWriteSession, type NativeWriteSessionResult } from "../../../src/native/write-session.js";
 
 const BEFORE = "before\n";
@@ -25,7 +25,7 @@ function git(cwd: string, args: readonly string[]): string {
 
 interface Fixture { root: string; repo: string; result: NativeWriteSessionResult }
 
-async function withCandidate(body: (fixture: Fixture) => Promise<void>): Promise<void> {
+async function withCandidate(body: (fixture: Fixture) => Promise<void>, seed?: (repo: string) => Promise<void>): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), "trusted-apply-"));
   const repo = path.join(root, "repo");
   await mkdir(repo);
@@ -34,6 +34,7 @@ async function withCandidate(body: (fixture: Fixture) => Promise<void>): Promise
   git(repo, ["config", "user.email", "trusted-apply@example.invalid"]);
   git(repo, ["config", "core.autocrlf", "false"]);
   await writeFile(path.join(repo, "value.txt"), BEFORE);
+  await seed?.(repo);
   git(repo, ["add", "."]);
   git(repo, ["commit", "-m", "base"]);
   const sandboxRoot = path.join(root, "sandbox");
@@ -151,7 +152,7 @@ test("trusted apply refuses a same-length mutation made by the actual verifier",
     const changed = { ...result, acceptance: { ...result.acceptance, ...verification } };
     await assert.rejects(new NativeApplySession().apply({
       sourceRepo: repo, result: changed, trustedVerification: prepareTrustedVerification(verification)
-    }), /re-verification|snapshot|changed/i);
+    }), (error: unknown) => error instanceof Error && !(error instanceof ApplyPreconditionRefusal) && /re-verification|snapshot|changed/i.test(error.message));
     assert.equal(git(repo, ["rev-parse", "HEAD"]), result.sourceRevision);
     assert.equal(await readFile(path.join(repo, "value.txt"), "utf8"), BEFORE);
     assert.equal(await readFile(path.join(result.candidatePath, "value.txt"), "utf8"), "other!\n");
@@ -168,17 +169,52 @@ test("trusted apply refuses an ignored extra file absent from the staged tree", 
 });
 
 for (const location of ["candidate", "source-info"] as const) {
-  test(`trusted apply refuses active text attributes from ${location}`, async () => {
+  test(`trusted apply refuses byte-changing text attributes from ${location}`, async () => {
     await withCandidate(async ({ repo, result }) => {
       const attrs = location === "candidate"
         ? path.join(result.candidatePath, ".gitattributes")
         : path.join(repo, ".git", "info", "attributes");
-      await writeFile(attrs, "value.txt text\n");
-      await assert.rejects(new NativeApplySession().apply({ sourceRepo: repo, result, trustedVerification: prepareTrustedVerification(VERIFY) }), /attribute|transform/i);
+      await writeFile(attrs, "value.txt text eol=crlf\n");
+      await assert.rejects(new NativeApplySession().apply({ sourceRepo: repo, result, trustedVerification: prepareTrustedVerification(VERIFY) }),
+        (error: unknown) => error instanceof ApplyPreconditionRefusal && /attribute|transform/i.test(error.message));
       await assertUnapplied(repo, result);
     });
   });
 }
+
+test("trusted apply refuses a whole source over the declared snapshot bytes before verification", async () => {
+  await withCandidate(async ({ repo, result }) => {
+    await assert.rejects(new NativeApplySession().apply({ sourceRepo: repo, result, trustedVerification: prepareTrustedVerification({ ...VERIFY, maxSnapshotBytes: 64 }) }),
+      (error: unknown) => error instanceof ApplyPreconditionRefusal && /byte|limit|snapshot/i.test(error.message));
+    await assertUnapplied(repo, result);
+  }, repo => writeFile(path.join(repo, "outside.txt"), "x".repeat(65)));
+});
+
+const PNG_HEADER = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+async function piSparkleAttributes(repo: string): Promise<void> {
+  await writeFile(path.join(repo, ".gitattributes"), "* text=auto eol=lf\n*.png binary\n");
+  await writeFile(path.join(repo, "image.png"), PNG_HEADER);
+}
+
+test("trusted apply admits a whole-repository text=auto eol=lf rule with binary CR bytes", async () => {
+  await withCandidate(async ({ repo, result }) => {
+    const applied = await new NativeApplySession().apply({ sourceRepo: repo, result, trustedVerification: prepareTrustedVerification(VERIFY) });
+    assert.equal(applied.status, "APPLIED");
+    assert.equal(git(repo, ["rev-parse", "HEAD"]), applied.appliedRevision);
+    assert.equal(await readFile(path.join(repo, "value.txt"), "utf8"), AFTER);
+    assert.deepEqual(await readFile(path.join(repo, "image.png")), PNG_HEADER);
+    assert.equal(git(repo, ["status", "--porcelain=v1", "--untracked-files=all"]), "");
+  }, piSparkleAttributes);
+});
+
+test("trusted apply refuses CRLF text bytes under text=auto eol=lf before touching the source", async () => {
+  await withCandidate(async ({ repo, result }) => {
+    await writeFile(path.join(result.candidatePath, "notes.txt"), "one\r\ntwo\r\n");
+    await assert.rejects(new NativeApplySession().apply({ sourceRepo: repo, result, trustedVerification: prepareTrustedVerification(VERIFY) }), /attribute|transform/i);
+    await assertUnapplied(repo, result);
+    assert.equal(git(repo, ["status", "--porcelain=v1", "--untracked-files=all"]), "");
+  }, piSparkleAttributes);
+});
 
 test("trusted apply refuses a real clean filter that would change verified bytes", async () => {
   await withCandidate(async ({ root, repo, result }) => {
@@ -209,7 +245,7 @@ for (const changed of ["candidate", "source", "attributes"] as const) {
       await assert.rejects(new NativeApplySession().apply({
         sourceRepo: repo, result, trustedVerification: prepareTrustedVerification(VERIFY),
         onPrepared: async () => {
-          if (changed === "attributes") await writeFile(path.join(repo, ".git", "info", "attributes"), "value.txt text\n");
+          if (changed === "attributes") await writeFile(path.join(repo, ".git", "info", "attributes"), "value.txt text eol=crlf\n");
           else await writeFile(path.join(changed === "candidate" ? result.candidatePath : repo, "value.txt"), "other!\n");
         }
       }), /changed|snapshot|attribute|transform/i);
@@ -280,7 +316,7 @@ test("trusted apply detects raw source drift hidden by assume-unchanged after OR
 test("trusted apply refuses active attributes introduced by an ORIG_HEAD hook", { skip: process.platform === "win32" }, async () => {
   await withCandidate(async ({ repo, result }) => {
     const hook = path.join(repo, ".git", "hooks", "reference-transaction");
-    await writeFile(hook, "#!/bin/sh\nif [ \"$1\" = prepared ]; then\n while read old new ref; do\n  if [ \"$ref\" = ORIG_HEAD ]; then\n   printf 'value.txt text\\n' > .git/info/attributes\n  fi\n done\nfi\n");
+    await writeFile(hook, "#!/bin/sh\nif [ \"$1\" = prepared ]; then\n while read old new ref; do\n  if [ \"$ref\" = ORIG_HEAD ]; then\n   printf 'value.txt text eol=crlf\\n' > .git/info/attributes\n  fi\n done\nfi\n");
     await chmod(hook, 0o755);
     await assert.rejects(new NativeApplySession().apply({
       sourceRepo: repo, result, trustedVerification: prepareTrustedVerification(VERIFY)
@@ -289,7 +325,7 @@ test("trusted apply refuses active attributes introduced by an ORIG_HEAD hook", 
     // The reference hook runs after the two-tree checkout. Apply refuses to publish
     // the branch but preserves the observed checkout state; it never guesses a rollback.
     assert.equal(await readFile(path.join(repo, "value.txt"), "utf8"), AFTER);
-    assert.equal(await readFile(path.join(repo, ".git", "info", "attributes"), "utf8"), "value.txt text\n");
+    assert.equal(await readFile(path.join(repo, ".git", "info", "attributes"), "utf8"), "value.txt text eol=crlf\n");
     assert.equal(await readFile(path.join(result.candidatePath, "value.txt"), "utf8"), AFTER);
   });
 });

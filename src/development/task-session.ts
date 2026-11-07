@@ -2,16 +2,15 @@ import { spawnSync } from "node:child_process";
 import { lstatSync } from "node:fs";
 import path from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
-import { NativeApplySession, type NativeApplyPreparedTarget, type NativeApplyResult, type NativeDisposeResult } from "../native/apply.js";
+import { ApplyPreconditionRefusal, NativeApplySession, type NativeApplyPreparedTarget, type NativeApplyResult, type NativeDisposeResult } from "../native/apply.js";
 import { physicalDirectoryWithoutLinks } from "../native/physical-directory.js";
 import { assertRetainedCandidate, discardRetainedCandidate, holdRetainedCandidate, type RetainedCandidateHandle } from "../native/retained-candidate.js";
 import type { NativeWriteExecutorFactory, NativeWriteSessionResult } from "../native/write-session.js";
-import { prepareTrustedVerification, bindPreparedNodeVerification, lookupCheckedDeliveryProof, type TrustedVerificationDescriptor } from "../execution/trusted-verification.js";
+import { bindPreparedNodeVerification, lookupCheckedDeliveryProof, type TrustedVerificationDescriptor } from "../execution/trusted-verification.js";
 import { runtimeRoot } from "../persist/state-layout.js";
 import { ActionLedger, type ActionClaim, type ActionRecord } from "./action-ledger.js";
-import { prepareDevelopmentCheckPlan } from "./check-plan.js";
 import { startDevelopmentTaskSpec, type DevelopmentTaskSpecResult } from "./start-task-spec.js";
-import { assertTaskSpecStateOutside, lookupPreparedNodeArtifacts } from "./task-preflight.js";
+import { assertTaskSpecStateOutside, lookupPreparedNodeArtifacts, taskSpecApplyVerification } from "./task-preflight.js";
 import { assertDevelopmentScope } from "./task-policy.js";
 import { snapshotDevelopmentTaskSpec, snapshotTaskSpecHostInput, type DevelopmentTaskSpec } from "./task-spec.js";
 import type { TaskCheckRefusal } from "./task-check-refusal.js";
@@ -76,11 +75,7 @@ export class TaskSpecSession {
     const spec = snapshotDevelopmentTaskSpec(input.spec), sourceRepo = physicalDirectoryWithoutLinks(input.sourceRepo), factory = input.executorFactory;
     assertTaskSpecStateOutside(sourceRepo, this.stateRoot); assertTaskSpecStateOutside(sourceRepo, this.sandboxRoot);
     const sourceBranch = git(sourceRepo, ["rev-parse", "--symbolic-full-name", "HEAD"]);
-    const planned = prepareDevelopmentCheckPlan({ scopePolicy: { allowedScope: spec.write.allow, protectedPaths: spec.write.protect },
-      checks: spec.checks.map(({ expect: _expect, ...check }) => check), ...(spec.limits === undefined ? {} : { snapshotLimits: spec.limits.snapshot }) });
-    const descriptor = planned.verification.trustedVerification!;
-    const whole = prepareTrustedVerification({ command: planned.verification.command, args: planned.verification.args ?? [],
-      checkerFiles: descriptor.checkerFiles, snapshotManifest: {}, maxSnapshotFiles: descriptor.maxSnapshotFiles, maxSnapshotBytes: descriptor.maxSnapshotBytes });
+    const whole = taskSpecApplyVerification(spec);
     return this.enter(input.signal, async signal => {
       const result = await startDevelopmentTaskSpec({ sourceRepo, stateRoot: this.stateRoot, sandboxRoot: this.sandboxRoot, spec, executorFactory: factory, signal });
       const execution = result.execution;
@@ -136,7 +131,8 @@ export class TaskSpecSession {
         row.applied = projected; row.state = "applied"; return projected;
       } catch (error) {
         if (claim !== undefined) await this.uncertain(row, claim, "apply"); else row.state = "ready";
-        throw new DomainValidationError(`TaskSpec apply ${claim === undefined ? "refused" : "needs reconciliation"}: ${error instanceof Error ? error.message : "operation failed"}`);
+        const message = `TaskSpec apply ${claim === undefined ? "refused" : "needs reconciliation"}: ${error instanceof Error ? error.message : "operation failed"}`;
+        throw error instanceof ApplyPreconditionRefusal ? new ApplyPreconditionRefusal(message) : new DomainValidationError(message);
       }
     });
   }
