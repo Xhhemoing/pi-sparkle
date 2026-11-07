@@ -5,7 +5,7 @@ description: Independent cross-model review of Codex-authored pi-sparkle PRs lab
 
 # Codex PR review and health review
 
-Claude is the independent cross-model reviewer for work authored by Codex/GPT sessions. Review only: never write product code, commit, push, merge, approve, close, edit branches or write GitHub in any way (including comments and labels). Codex relays the local review unchanged and handles labels. A review is evidence for the owner, not owner approval, and does not replace the required human review of frozen CLI/event/JSON surfaces or conflict hunks. The repository is public: never put Soul content, transcripts, credentials or private record text into a comment.
+Claude is the independent cross-model reviewer for work authored by Codex/GPT sessions. When the PR author is also a Claude session (for example in Cursor), the review is only context-independent: say so on the Independence line; the cross-model review then comes from Codex through the `gpt-review` path in `.codex/coordinator.md` section 5. Review only: never write product code, commit, push, merge, approve, close, edit branches or write GitHub in any way (including comments and labels). Codex relays the local review unchanged and handles labels. A review is evidence for the owner, not owner approval, and does not replace the required human review of frozen CLI/event/JSON surfaces or conflict hunks. The repository is public: never put Soul content, transcripts, credentials or private record text into a comment.
 
 The Codex side of this handshake is `.codex/coordinator.md` section 5.
 
@@ -29,7 +29,7 @@ The Codex side of this handshake is `.codex/coordinator.md` section 5.
    - Privacy: nothing private in the diff, PR body or comments.
    - Scope: only claimed files; no new hash/contract/baseline/gate without the concrete failure AGENTS.md requires.
    - Evidence: commands, results and CI claimed in the PR match what actually ran at this SHA.
-6. Report only concrete defects with `file:line`, failure scenario and minimal fix. Out-of-scope improvements are non-blocking.
+6. Report only concrete defects with `file:line`, failure scenario and minimal fix. Out-of-scope improvements are non-blocking. For a documentation- or records-only PR, keep the review short: blocking defects and factual contradictions with current records only, without optional wording suggestions.
 
 ## Posting
 
@@ -40,6 +40,8 @@ Write the final review as UTF-8 to `E:/Project/pi-sparkle/.agent_workspace/claud
 **Claude review** of `<short sha>` (scope: full | since `<prev short sha>`)
 
 Owner summary (中文): <one sentence: whether it is ready for the owner to merge and why>
+
+Independence: <author model family> author; cross-model | context-independent (same family)
 
 **Blocking**
 1. `path:line`: defect. Failure scenario. Minimal fix.
@@ -61,5 +63,6 @@ Run about every 10 real-task attempts or weekly. Check:
 - Queue: open PRs, how long each has waited, CI state, labels, stacked dependencies.
 - Outcomes: run the existing `scripts/real-task-summary.mjs` against the canonical private record root recorded in local memory, then group non-correct attempts by recorded root cause. Rank by count × cost.
 - Process drift: docs-only PR ratio versus runtime changes, plan/todo size and readability, per-attempt receipt PRs, repeated full gates, new gates added without a concrete failure.
+- Review precision: for findings in reviews since the last health report, count how many led to a change, were rebutted with evidence or were deferred, from later commits and PR comments; report the share that led to a change.
 
 Report in plain Chinese: current state in at most three lines, then a numbered owner action list (or “无”). Do not ask questions or offer choices. Put unresolved findings in the local health report for Codex to consolidate into `tasks/issues.md`; do not edit `tasks/plan.md`, `tasks/todo.md` or `tasks/issues.md`, which the coordinator owns. Write the dated health report under `E:/Project/pi-sparkle/.agent_workspace/claude-reviews/health-<date>.md`; it is not a PR review file and Codex must not post it as one. Runtime/safety merges, resource promotion, original Soul apply and reserved paid/release boundaries remain with the owner.
