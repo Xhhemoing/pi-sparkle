@@ -66,7 +66,7 @@ $private = Join-Path $repo '.agent_workspace/operator-example'
 New-Item -ItemType Directory -Force -Path $private | Out-Null
 $state = 'C:/synthetic-private/sparkle-state'
 $task = Join-Path $private 'synthetic-task.json' # already reviewed; not created here
-$weeklyLimit = 'none' # Current loop authorization; use the actual approved positive cap elsewhere.
+$weeklyLimit = 50 # ADR-012 cap for attempts 44-49; use the owner-approved cap.
 $utf8 = [System.Text.UTF8Encoding]::new($false)
 try { $zone = [TimeZoneInfo]::FindSystemTimeZoneById('America/Los_Angeles') }
 catch { $zone = [TimeZoneInfo]::FindSystemTimeZoneById('Pacific Standard Time') }
@@ -95,7 +95,7 @@ $meta = @{
 }
 ```
 
-The summary defaults to US$5 per task and US$50 per week. Use the owner-authorized weekly limit with `--weekly-limit-usd <positive amount|none>`; this loop currently uses `none`, while the per-attempt US$5 rule remains. Each unknown-cost attempt reserves the greater of **US$5 and its observed cost subtotal**, not zero; an observed task overrun blocks further admission. Admission reflects recorded attempts only: record outstanding attempts first, serialize budget decisions, and stop if unresolved cost/effects could exceed the caps. Each comparison arm is a separate attempt with a distinct `id`, its own capture and budget check, and a shared `comparisonId`; never combine Sparkle and direct-Pi evidence into one record.
+The summary defaults to US$5 per task and US$50 per week. Use the owner-authorized weekly limit with `--weekly-limit-usd <positive amount|none>`; [ADR-012](decisions/0012-three-pillar-architecture.md) authorizes attempts 44–49 at US$5 per attempt and US$50 per week, so this loop passes `50`. Each unknown-cost attempt reserves the greater of **US$5 and its observed cost subtotal**, not zero; an observed task overrun blocks further admission. Admission reflects recorded attempts only: record outstanding attempts first, serialize budget decisions, and stop if unresolved cost/effects could exceed the caps. Each comparison arm is a separate attempt with a distinct `id`, its own capture and budget check, and a shared `comparisonId`; never combine Sparkle and direct-Pi evidence into one record.
 
 Capture real CLI stdout, keeping stderr separate. `pnpm --silent` suppresses the package-script banner so `--projection` receives JSON/JSONL. Preserve the exit code even on failure; do not hand-author a projection. This command may incur authorized provider charges:
 
@@ -225,7 +225,7 @@ node scripts/real-task-record.mjs --root $sampleRoot --metadata $reviewFile --up
 if ($LASTEXITCODE -ne 0) { throw 'Review update failed' }
 $localDate = [datetime]::ParseExact($identity.date, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
 $monday = $localDate.AddDays(-(([int]$localDate.DayOfWeek + 6) % 7)).ToString('yyyy-MM-dd')
-node scripts/real-task-summary.mjs --root $sampleRoot --week $monday --weekly-limit-usd none --json
+node scripts/real-task-summary.mjs --root $sampleRoot --week $monday --weekly-limit-usd 50 --json
 if ($LASTEXITCODE -ne 0) { throw 'Summary failed' }
 ```
 
@@ -323,12 +323,12 @@ Node preparation is deliberately unproven here: materialization requires an alre
 
 After specific promotion, materialize with `--topics model-thinking`. Its private `modelSelection` records the requested triple; `baseSpec`, `spec`, objective, checks, scope and budgets stay unchanged, and TaskSpec keeps `worker.model: "inherit"`. Materialization grants no authority and never executes. Use a separately supplied trusted host approval file with exactly `authorityRef` and `approvedSelections` (an array of the approved triples). A resource, TaskSpec or candidate cannot supply that authority or credentials.
 
-Before each explicit execution, complete the private metadata and `Assert-RealTaskBudget` setup in the [operator example](#real-task-operator-example-adr-011), using the canonical record-owning repository as `$repo`. Reconcile every unrecorded or unsettled attempt in the new ledger, starting at attempt 44; unresolved effects block admission even if a partial summary reports `canAdmitNextTask`. Preserve the historical 43-attempt baseline separately, with missing costs and times marked unknown; reconstructing those historical records is not an admission prerequisite. The execute path enforces its budget/isolation admission checks and preserves strict-cost checks and refusal on unknown effects. Fixed offline preparation from #132 is adopted at the API/preflight layer; real pnpm managed retention/apply still has the linked/ignored-artifact blocker recorded in the current plan. Do not treat preflight success as managed/apply acceptance. Before real-task use, select the adopted runtime and explicit host recipe/limits, observe its main CI, and refresh the separate private-ledger admission; a merge does not dispatch a paid task. Keep admission and execution serialized. The current authorization is at most US$5 per attempt and `--weekly-limit-usd none`; `none` removes the weekly cap, not the per-attempt limit or unknown-cost accounting. Recompute the current week before every attempt, including each comparison arm.
+Before each explicit execution, complete the private metadata and `Assert-RealTaskBudget` setup in the [operator example](#real-task-operator-example-adr-011), using the canonical record-owning repository as `$repo`. Reconcile every unrecorded or unsettled attempt in the new ledger, starting at attempt 44; unresolved effects block admission even if a partial summary reports `canAdmitNextTask`. Preserve the historical 43-attempt baseline separately, with missing costs and times marked unknown; reconstructing those historical records is not an admission prerequisite. The execute path enforces its budget/isolation admission checks and preserves strict-cost checks and refusal on unknown effects. Fixed offline preparation from #132 is adopted at the API/preflight layer, and #140 retains prepared Node artifacts through apply; no pnpm-prepared real task has applied yet, and current apply blockers are recorded in the [current plan](../tasks/plan.md). Do not treat preflight success as managed/apply acceptance. Before real-task use, select the adopted runtime and explicit host recipe/limits, observe its main CI, and refresh the separate private-ledger admission; a merge does not dispatch a paid task. Keep admission and execution serialized. The current [ADR-012](decisions/0012-three-pillar-architecture.md) authorization covers attempts 44–49 at most US$5 per attempt and US$50 per week (`--weekly-limit-usd 50`); each unknown cost still reserves US$5. Recompute the current week before every attempt, including each comparison arm.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$weeklyLimit = 'none'
-$date = Assert-RealTaskBudget # Refreshes the current-week summary with --weekly-limit-usd none.
+$weeklyLimit = 50
+$date = Assert-RealTaskBudget # Refreshes the current-week summary with --weekly-limit-usd 50.
 $meta.id = 'synthetic-fixed-model-01' # Fresh ID for this attempt, including a failed attempt.
 $meta.date = $date
 $projection = Join-Path $private 'synthetic-fixed-model-01.jsonl'

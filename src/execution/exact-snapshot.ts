@@ -594,7 +594,7 @@ function assertAttributesPreserveBytes(
   };
 
   const assertNoCarriageReturn = (relativePath: string, bytes: Buffer, view: string): void => {
-    if (bytes.includes(13)) fail(`active Git text conversion attribute on a path holding CR bytes in ${view}: ${relativePath}`);
+    if (bytes.includes(13)) fail(`active Git text conversion attribute on a path holding CR bytes in ${view}: ${JSON.stringify(relativePath)}`);
   };
   const assertConvertedBlobs = (entries: readonly GitTreeEntry[], view: string): void => {
     const blobs = entries.filter((entry) => entry.type === "blob" && lineConverted.has(entry.relativePath));

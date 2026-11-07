@@ -337,6 +337,16 @@ test("text conversion is refused when the worktree or either tree holds a CR byt
   assert.throws(() => attributes(root, lfTree), /attribute|transform/i);
 });
 
+test("CR refusal reports a candidate-chosen path without raw control characters", (t) => {
+  const root = fixture(t);
+  fs.writeFileSync(path.join(root, ".gitattributes"), "* text=auto eol=lf\n");
+  const before = stage(root);
+  const name = "\u001b[2Jcr.txt";
+  const after = rawTree(root, "100644", "blob", blob(root, "one\r\ntwo\r\n"), name);
+  assert.throws(() => attributes(root, before, after), (error: unknown) => error instanceof Error
+    && error.message.includes(JSON.stringify(name)) && !error.message.includes("\u001b"));
+});
+
 test("attribute boundary accepts explicit disabling and binary macros without an encoding override", (t) => {
   const root = fixture(t);
   fs.writeFileSync(path.join(root, ".gitattributes"), "file -filter -text -eol -ident -crlf binary\n");

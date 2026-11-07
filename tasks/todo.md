@@ -8,7 +8,6 @@ See the [current checkpoint](plan.md#current-execution-checkpoint-2026-10-26), [
 - [ ] 协调者（阶段B）：第47–49次优先产品代码任务（q05先），第49次后加入Soul隔离副本与多文件/跨模块任务；队列条目写明移植路径；汇总每次正确交付的人工与协调者时间，每个新任务记taskSpecMinutes。
 - [ ] 协调者：#144 Claude NON-BLOCKING已转发；补Windows两组聚焦测试与typecheck、一次串行gate、含#148的新CI后交owner合并（内存不足时暂缓）；prepared容量另议。
 - [ ] 协调者（阶段A）：Git < 2.36 在调用模型前拒绝并在doctor提示（`worktree list -z`）；本机2.54，不挡阶段A；切片PR需owner合并。
-- [ ] 协调者：#150（操作指南更正）Claude NON-BLOCKING已转发、CI全绿，待owner合并；合并后在下一次记录PR更新plan的对应说明。
 - [ ] 协调者：#146 Claude BLOCKING已转发（桥接漏了“非inline检查须声明protectedPaths”）；单任务记录完成后先写失败测试修复，rebase到main，新CI与一次串行gate，再交owner冻结实现审阅与合并。
 - [ ] 协调者（阶段C–E）：C8交付说明、C6裁判校准（≥ 20条人工标注；现有30份PR评审的精度标注可随时零费用试点）、D连续两次同类失败熔断、E 10%灰度与合成题只进开发集；C2/C8先后按阶段B人工时间构成定；按roadmap顺序，不提前解冻。
 - [ ] 协调者：保留I16历史独有能力、68/102本地历史refs、host-check修改与旧dirty快照；不恢复冻结模块或删除证据。
@@ -16,7 +15,7 @@ See the [current checkpoint](plan.md#current-execution-checkpoint-2026-10-26), [
 - [ ] 协调者：原Soul只读；条件不变不重试P01/P02；第50次或每周复盘合并记录。
 - [ ] 协调者：R3中模型行为类（指导/上下文/模板/模型档位）等阶段B排序显示需要时再推进，准备与检查配方不受此限；I02 promotion仍需owner，零收益推断。
 - [ ] 协调者：旧direct-helper采用前修复kill-error/成功回收回归。
-- [ ] Owner：I-18方向已按（a）记录，仍需定a46 apply声明的核对方式与Soul `eol=crlf`；合并#150与评审路由#153；可选批准零token HTTP错误的有界重试设计；第49次之后的授权；带node_modules任务的依赖预算。
+- [ ] Owner：腾出本机内存（#144证据需要）；可选批准零token HTTP错误的有界重试设计；第49次之后的授权（含是否接纳Soul `eol=crlf`）；带node_modules任务的依赖预算。
 - [ ] Owner：阶段C的新工具/命令、TaskSpec模型字段与冻结CLI/事件/JSON改动需接口审阅后合并。
 - [ ] Owner：旧15任务比较、ADR010收益、R5和发布保留独立证据及授权。
 - [ ] 既有负责人：保留[早期未完成义务](../archive/tasks/2026-10-21-pre-integration-checklist.md)，含隐私、隔离和生产批准。
