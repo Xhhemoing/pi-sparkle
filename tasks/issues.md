@@ -164,3 +164,5 @@ Owner decision:
 - Either way, choose how to reconcile the a46 claim.
 
 Status 2026-11-06: direction (a) is recorded in the plan's [owner decisions in force](plan.md#owner-decisions-in-force), shipped with a preflight class fix that checks apply's read-only preconditions before model dispatch and shows host-generated apply refusal reasons. The a46 claim and any non-identity conversion, such as Soul's `eol=crlf`, stay open.
+
+Status 2026-11-07, settled under the owner's delegation: the a46 claim stays open as recorded. It has no source effect and blocks only its own copy, so neither a hand edit of the ledger nor a new TaskSpec reconciliation command is justified by this one case; the a46 copy is not used for apply or discard again, and the candidate is ported back from its retained bytes. Non-identity conversions stay refused, so Soul copies cannot apply and stay out of attempts 47–49. Reopen if an open claim blocks needed work, or if Soul tasks are proposed after attempt 49; admitting `eol=crlf` would need a safety-core design proving the converted bytes and a new owner decision.
