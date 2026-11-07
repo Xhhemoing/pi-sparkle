@@ -292,13 +292,49 @@ test("raw object reads disable Git replacement refs", (t) => {
   assert.throws(() => assertExactSnapshotMatchesGitTree(captureExactSnapshot(root), root, tree), /byte|content|match/i);
 });
 
-test("attribute boundary rejects every active conversion attribute in current worktree", (t) => {
+test("attribute boundary rejects every conversion attribute that can change bytes in current worktree", (t) => {
   const root = fixture(t);
   const tree = stage(root);
-  for (const value of ["filter=example", "text", "text=auto", "eol=lf", "ident", "working-tree-encoding=UTF-16", "crlf"]) {
+  for (const value of ["filter=example", "eol=crlf", "text eol=crlf", "-text eol=crlf", "text=other", "ident", "working-tree-encoding=UTF-16", "crlf"]) {
     fs.writeFileSync(path.join(root, ".gitattributes"), `file ${value}\n`);
-    assert.throws(() => attributes(root, tree), /attribute|transform/i);
+    assert.throws(() => attributes(root, tree), /attribute|transform/i, value);
   }
+});
+
+test("attribute boundary accepts LF text conversion when no view holds a CR byte", (t) => {
+  const root = fixture(t);
+  fs.writeFileSync(path.join(root, "file"), "one\ntwo\n");
+  for (const value of ["text", "text=auto", "eol=lf", "text eol=lf", "text=auto eol=lf"]) {
+    fs.writeFileSync(path.join(root, ".gitattributes"), `file ${value}\n`);
+    const tree = stage(root);
+    assert.doesNotThrow(() => attributes(root, tree), value);
+  }
+});
+
+test("attribute boundary accepts a whole-repository text=auto eol=lf rule with binary paths holding CR bytes", (t) => {
+  const root = fixture(t);
+  fs.writeFileSync(path.join(root, ".gitattributes"), "* text=auto eol=lf\n*.png binary\n*.bin -text\n");
+  fs.writeFileSync(path.join(root, "file"), "one\ntwo\n");
+  fs.writeFileSync(path.join(root, "image.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]));
+  fs.writeFileSync(path.join(root, "data.bin"), Buffer.from([0x0d, 0x0a, 0x0d]));
+  const tree = stage(root);
+  const snapshot = captureExactSnapshot(root);
+  assert.doesNotThrow(() => assertExactSnapshotMatchesGitTree(snapshot, root, tree));
+  assert.doesNotThrow(() => assertGitAttributesPreserveExactBytes(snapshot, root, { beforeTree: tree, afterTree: tree }));
+});
+
+test("text conversion is refused when the worktree or either tree holds a CR byte", (t) => {
+  const root = fixture(t);
+  fs.writeFileSync(path.join(root, "file"), "one\r\ntwo\r\n");
+  const crlfTree = stage(root);
+  fs.writeFileSync(path.join(root, ".gitattributes"), "* text=auto eol=lf\n");
+  fs.writeFileSync(path.join(root, "file"), "one\ntwo\n");
+  const lfTree = stage(root);
+  assert.doesNotThrow(() => attributes(root, lfTree));
+  assert.throws(() => attributes(root, crlfTree, lfTree), /attribute|transform/i);
+  assert.throws(() => attributes(root, lfTree, crlfTree), /attribute|transform/i);
+  fs.writeFileSync(path.join(root, "file"), "one\rtwo\n");
+  assert.throws(() => attributes(root, lfTree), /attribute|transform/i);
 });
 
 test("attribute boundary accepts explicit disabling and binary macros without an encoding override", (t) => {
@@ -311,7 +347,7 @@ test("attribute boundary accepts explicit disabling and binary macros without an
 test("attribute boundary rejects cached attributes masked by current worktree", (t) => {
   const root = fixture(t);
   const before = stage(root);
-  fs.writeFileSync(path.join(root, ".gitattributes"), "file text\n");
+  fs.writeFileSync(path.join(root, ".gitattributes"), "file eol=crlf\n");
   stage(root);
   fs.writeFileSync(path.join(root, ".gitattributes"), "file -text\n");
   assert.throws(() => attributes(root, before), /attribute|transform/i);
@@ -320,7 +356,7 @@ test("attribute boundary rejects cached attributes masked by current worktree", 
 test("attribute boundary checks both immutable old and new trees despite current/cache masking", (t) => {
   const root = fixture(t);
   const safe = stage(root);
-  fs.writeFileSync(path.join(root, ".gitattributes"), "file text\n");
+  fs.writeFileSync(path.join(root, ".gitattributes"), "file eol=crlf\n");
   const transformed = stage(root);
   fs.writeFileSync(path.join(root, ".gitattributes"), "file -text\n");
   stage(root);
@@ -334,7 +370,7 @@ test("attribute queries include old-tree-only and target-tree-only paths", (t) =
   const before = stage(root);
   fs.rmSync(path.join(root, "removed"));
   const after = stage(root);
-  fs.writeFileSync(path.join(root, ".git", "info", "attributes"), "removed text\n");
+  fs.writeFileSync(path.join(root, ".git", "info", "attributes"), "removed eol=crlf\n");
   assert.throws(() => attributes(root, before, after), /attribute|transform/i);
   assert.throws(() => attributes(root, after, before), /attribute|transform/i);
 });
@@ -346,7 +382,7 @@ test("attribute queries observe repository info and configured external attribut
   fs.writeFileSync(info, "file ident\n");
   assert.throws(() => attributes(root, tree), /attribute|transform/i);
   fs.rmSync(info);
-  fs.writeFileSync(path.join(root, ".git", "empty-attributes"), "file text\n");
+  fs.writeFileSync(path.join(root, ".git", "empty-attributes"), "file eol=crlf\n");
   assert.throws(() => attributes(root, tree), /attribute|transform/i);
 });
 
