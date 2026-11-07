@@ -8,6 +8,7 @@ Start with the active plan's [current execution checkpoint](plan.md#current-exec
 - [`todo.md`](todo.md): unfinished work only, at most 25 lines, ordered by the next usable result.
 - [`issues.md`](issues.md): the single log of unresolved matters, each with its current state.
 - [Pre-tidy plan](../archive/tasks/2026-11-06-pre-tidy-plan.md): every dated checkpoint and candidate record from 2026-10-25 to 2026-11-02, kept verbatim; its old next actions do not dispatch work.
+- [Resolved issues](../archive/tasks/2026-11-06-resolved-issues.md): issue entries I-01, I-06, I-07, I-09, I-11 and I-12, moved verbatim from `issues.md` on 2026-11-06; their pending wording does not dispatch work.
 - [`migration-todo.md`](migration-todo.md), [`adaptive-plan.md`](../archive/tasks/adaptive-plan.md) and [`adaptive-todo.md`](../archive/tasks/adaptive-todo.md): retained historical details and constraints; old next steps do not dispatch current work or lift freezes.
 - [Previous plan](../archive/tasks/2026-10-21-pre-integration-plan.md) and [checklist](../archive/tasks/2026-10-21-pre-integration-checklist.md): unresolved earlier duties and historical evidence.
 - [Status matrix](../docs/status-matrix.md): scoped capability claims. Run `pnpm status` to generate ignored local `STATUS.md`; CI snapshots are in the existing quality/CLI Actions artifacts (see [retrieval](plan.md#retained-evidence-and-unfinished-obligations)). Neither snapshot grants authorization.
