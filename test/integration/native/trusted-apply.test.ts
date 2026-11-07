@@ -182,6 +182,14 @@ for (const location of ["candidate", "source-info"] as const) {
   });
 }
 
+test("trusted apply refuses a whole source over the declared snapshot bytes before verification", async () => {
+  await withCandidate(async ({ repo, result }) => {
+    await assert.rejects(new NativeApplySession().apply({ sourceRepo: repo, result, trustedVerification: prepareTrustedVerification({ ...VERIFY, maxSnapshotBytes: 64 }) }),
+      (error: unknown) => error instanceof ApplyPreconditionRefusal && /byte|limit|snapshot/i.test(error.message));
+    await assertUnapplied(repo, result);
+  }, repo => writeFile(path.join(repo, "outside.txt"), "x".repeat(65)));
+});
+
 const PNG_HEADER = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
 async function piSparkleAttributes(repo: string): Promise<void> {
   await writeFile(path.join(repo, ".gitattributes"), "* text=auto eol=lf\n*.png binary\n");
