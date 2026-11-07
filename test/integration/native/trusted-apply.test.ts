@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { createEvidenceId, createMessageId } from "../../../src/domain/ids.js";
 import { nowIso } from "../../../src/domain/timestamp.js";
 import { prepareTrustedVerification } from "../../../src/execution/trusted-verification.js";
-import { NativeApplySession } from "../../../src/native/apply.js";
+import { ApplyPreconditionRefusal, NativeApplySession } from "../../../src/native/apply.js";
 import { NativeWriteSession, type NativeWriteSessionResult } from "../../../src/native/write-session.js";
 
 const BEFORE = "before\n";
@@ -152,7 +152,7 @@ test("trusted apply refuses a same-length mutation made by the actual verifier",
     const changed = { ...result, acceptance: { ...result.acceptance, ...verification } };
     await assert.rejects(new NativeApplySession().apply({
       sourceRepo: repo, result: changed, trustedVerification: prepareTrustedVerification(verification)
-    }), /re-verification|snapshot|changed/i);
+    }), (error: unknown) => error instanceof Error && !(error instanceof ApplyPreconditionRefusal) && /re-verification|snapshot|changed/i.test(error.message));
     assert.equal(git(repo, ["rev-parse", "HEAD"]), result.sourceRevision);
     assert.equal(await readFile(path.join(repo, "value.txt"), "utf8"), BEFORE);
     assert.equal(await readFile(path.join(result.candidatePath, "value.txt"), "utf8"), "other!\n");
@@ -175,7 +175,8 @@ for (const location of ["candidate", "source-info"] as const) {
         ? path.join(result.candidatePath, ".gitattributes")
         : path.join(repo, ".git", "info", "attributes");
       await writeFile(attrs, "value.txt text eol=crlf\n");
-      await assert.rejects(new NativeApplySession().apply({ sourceRepo: repo, result, trustedVerification: prepareTrustedVerification(VERIFY) }), /attribute|transform/i);
+      await assert.rejects(new NativeApplySession().apply({ sourceRepo: repo, result, trustedVerification: prepareTrustedVerification(VERIFY) }),
+        (error: unknown) => error instanceof ApplyPreconditionRefusal && /attribute|transform/i.test(error.message));
       await assertUnapplied(repo, result);
     });
   });

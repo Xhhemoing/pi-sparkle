@@ -3,9 +3,9 @@ import type { DevelopmentTaskSpec } from "./task-spec.js";
 
 type TypeScriptRefusalCode = "TS_COMPILER_MISSING" | "TS_CONFIG_MISSING" | "TS_UNDECLARED_RED";
 
-/** Static preparation advice only; never acceptance or permission to execute it. */
+/** Host-generated preparation advice only; never acceptance or permission to execute it. */
 export interface TaskCheckRefusal {
-  readonly code: TypeScriptRefusalCode | "RUST_TOOLCHAIN_UNAVAILABLE" | "RUST_OFFLINE_DEPENDENCY_MISSING";
+  readonly code: TypeScriptRefusalCode | "RUST_TOOLCHAIN_UNAVAILABLE" | "RUST_OFFLINE_DEPENDENCY_MISSING" | "SOURCE_NOT_APPLICABLE";
   readonly category: "infrastructure" | "undeclared-red";
   readonly message: string;
   readonly next: string;
@@ -30,6 +30,13 @@ const RUST_TOOLCHAIN_REFUSAL: TaskCheckRefusal = Object.freeze({ code: "RUST_TOO
 const RUST_OFFLINE_DEPENDENCY_REFUSAL: TaskCheckRefusal = Object.freeze({ code: "RUST_OFFLINE_DEPENDENCY_MISSING", category: "infrastructure",
   message: "The offline Rust check could not resolve a dependency from the selected local cache.",
   next: "The owner may prepare dependencies outside this offline product run using the same reviewed CARGO_HOME and registry configuration selected by the fixed TaskSpec: run cargo fetch and review any Cargo.lock changes, or cargo vendor and review the resulting configuration. Any change to the cache or registry selection requires explicit TaskSpec review before retrying. This product run does not enable network access or install dependencies." });
+
+/** The reason comes from apply's own source predicates, which never run a checker. */
+export function sourceNotApplicableRefusal(reason: string): TaskCheckRefusal {
+  return Object.freeze({ code: "SOURCE_NOT_APPLICABLE", category: "infrastructure",
+    message: `Exact apply would refuse this source: ${reason.slice(0, 512)}`,
+    next: "Fix the source repository state, attributes or snapshot limits, or choose a source that apply admits, before spending a model attempt. Apply rechecks the same conditions." });
+}
 
 export function classifyTaskCheckRefusal(check: DevelopmentTaskSpec["checks"][number], result: AuthorizedCommandRunResult): TaskCheckRefusal | undefined {
   if (result.status !== "completed" || result.signal !== null || result.cleanupUnsettled || result.exitCode === null || result.exitCode === 0 ||

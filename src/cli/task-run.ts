@@ -5,6 +5,7 @@ import { parseArgs, types } from "node:util";
 import { loadProvidersConfig } from "../config/providers-config.js";
 import { TaskSpecSession, type TaskExecutionProjection } from "../development/task-session.js";
 import { DomainValidationError } from "../domain/errors.js";
+import { ApplyPreconditionRefusal } from "../native/apply.js";
 import { developmentPiTools } from "../pi-adapter/development-tools.js";
 import { createConfiguredPiExecutor } from "../pi-adapter/runtime.js";
 import { createInvocationSink } from "../telemetry/invocation-log.js";
@@ -139,8 +140,9 @@ export async function taskRunCommand(args: string[], io: Io, runtime: {
       runId: result.runId, next: result.refusal?.next ?? `inspect private evidence at ${result.artifactPath}; do not retry unresolved effects` });
     return CLI_EXIT.ok;
   } catch (error) {
-    // Exceptions after execution begins may carry raw trusted checker output.
-    const privateStage = stage === "execute" || stage === "apply" || stage === "discard";
+    // Exceptions after execution begins may carry raw trusted checker output;
+    // apply precondition refusals precede any checker run.
+    const privateStage = (stage === "execute" || stage === "apply" || stage === "discard") && !(error instanceof ApplyPreconditionRefusal);
     return cliFail(io, { command: "task run", stage,
       message: privateStage ? "TaskSpec operation refused or interrupted; candidate and private evidence require inspection" : error instanceof Error ? error.message : String(error),
       ...(result === undefined ? {} : { runId: result.runId }),
