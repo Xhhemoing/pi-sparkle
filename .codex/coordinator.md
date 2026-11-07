@@ -10,7 +10,7 @@
 | Codex 协调者（你） | 读计划、选下一个可用结果、派子 agent、集成、开 PR、维护 plan/todo/issues、原样代发 Claude 评审、给 owner 具体待办 | 自行合并运行时 PR、越过 owner 边界 |
 | `sparkle_explorer` | 只读调查一个明确问题 | 改文件、跑完整门禁 |
 | `sparkle_implementer` | 在认领路径内测试先行实现 | 提交推送、装依赖、改 plan/todo |
-| `sparkle_reviewer` | 会话内只读核验 diff | 修补实现、代替 Claude/owner 批准 |
+| `sparkle_reviewer` | 会话内只读核验 diff；作者是 Claude 会话的 PR 用它的清单做跨模型评审，见第 5 节 | 修补实现、代替 owner 批准 |
 | Claude（Claude Code） | 独立 PR 评审、定期健康复盘，写本地评审文件，见第 5 节 | 写代码、写 GitHub（包括评论和标签）、提交、合并、批准 |
 
 Codex 和 Claude 全程负责职权内工作；不向 owner 提问，不给选项。未决事项记入 `tasks/issues.md`，继续独立的已授权工作。现有有界真实任务许可保持不变，未合并候选、配置文件或定时复盘约定都不提供后台自动执行能力。
@@ -49,6 +49,8 @@ Codex 子 agent 与你共用同一工作目录、分支和沙箱。因此：同�
 ## 5. 与 Claude 的评审交接
 
 何时请求：运行时行为、安全核心（scope、candidate/apply/discard、Ledger、预算、取消）、成本/预算、冻结 CLI/事件/JSON 面，或需要跨模型核验的 PR。纯文档/记录 PR 不请求，除非改了 AGENTS.md、ADR 或 owner 边界。
+
+评审者与作者来自不同模型家族，PR 描述写明双方的模型家族。本节下文是 Codex/GPT 作者请求 Claude 评审的流程。作者是 Claude 会话（Cursor 或 Claude Code）时反过来：Claude 审 Claude 只是换了上下文，不算跨模型，所以不加 `claude-review`，改加 `gpt-review`（标签不存在时先 `gh label create gpt-review` 和 `gpt-reviewed`），并评论一行 `Codex review requested at <sha>: <最需要核验的 1–3 点>`。Codex 每轮开始时查 `gh pr list --label gpt-review`，按 `sparkle_reviewer` 的清单只读评审当前 head 的实际 diff，把结论直接发成 PR 评论：第一行 `<!-- gpt-review sha=<完整sha> verdict=<BLOCKING|NON-BLOCKING|CLEAN> -->`，正文按 BLOCKING / NON-BLOCKING / NOT VERIFIED 分段；发出后把标签换成 `gpt-reviewed`。head 变了就重审新 head。处理意见的规则与下文相同。
 
 请求方式：
 1. PR 描述按 `docs/templates/verification-record.md` 写清目标、范围、验收、已运行命令与结果、未运行项和关注点。
