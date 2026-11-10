@@ -623,3 +623,31 @@ test("partial native observed spend survives missing or unpriced telemetry and s
     assert.equal(result.budget.canAdmitNextTask, false);
   });
 });
+
+test("summary ranks the failure classes of attempts that are not correct deliveries, with unclassified last", async () => {
+  await fixture(async root => {
+    // A correct delivery stays out of the ranking even when it names a failure class.
+    await record(root, metadata({ id: "delivered", date: "2026-10-19", reviewed: true, kept: true, escapedDefects: 0, failureClass: "tool" }),
+      projection(), [invocation()], loopArtifact());
+    await record(root, metadata({ id: "model-known-cost", date: "2026-10-20", reviewed: true, kept: false, failureClass: "model", interventions: 1 }),
+      projection({ runId: "run_two" }), [invocation({ id: "inv_two", runId: "run_two" })], loopArtifact(["run_two"]));
+    await record(root, metadata({ id: "environment-1", date: "2026-10-21", status: "PREFLIGHT_FAILED", failureClass: "environment", interventions: 2 }));
+    await record(root, metadata({ id: "environment-2", date: "2026-10-22", status: "PREFLIGHT_FAILED", failureClass: "environment", interventions: "unknown" }));
+    await record(root, metadata({ id: "provider-1", date: "2026-10-23", status: "FAILED", failureClass: "provider" }));
+    await record(root, metadata({ id: "no-class-1", date: "2026-10-24", status: "TIMEOUT" }));
+    await record(root, metadata({ id: "no-class-2", date: "2026-10-24", status: "TIMEOUT" }));
+    await record(root, metadata({ id: "no-class-3", date: "2026-10-25", status: "ERROR" }));
+    await record(root, metadata({ id: "contract-prior-week", date: "2026-10-18", status: "FAILED", failureClass: "contract" }));
+    const entry = (failureClass: string, attempts: number, knownUsd: number, unknownCostAttempts: number, knownTotal: number, unknownAttempts: number) =>
+      ({ failureClass, attempts, knownUsd, unknownCostAttempts, interventions: { knownTotal, unknownAttempts } });
+    const environment = entry("environment", 2, 0, 2, 2, 1), model = entry("model", 1, 0.004, 0, 1, 0);
+    const provider = entry("provider", 1, 0, 1, 0, 0), unclassified = entry("unclassified", 3, 0, 3, 0, 0);
+    const result = await summarize(root);
+    // Attempts descending, then known cost descending; the largest group still sorts last when it is unclassified.
+    assert.deepEqual(result.week.failureRanking, [environment, model, provider, unclassified]);
+    // Equal attempts and known cost fall back to the class name.
+    assert.deepEqual(result.allTime.failureRanking, [environment, model, entry("contract", 1, 0, 1, 0, 0), provider, unclassified]);
+    assert.equal(result.week.correctDeliveries, 1);
+    assert.equal(result.week.byFailureClass.tool, 1, "the existing per-class count still includes the delivered attempt");
+  });
+});
