@@ -548,6 +548,7 @@ function assertAttributesPreserveBytes(
   const paths = new Set<string>(data.entries.filter((entry) => entry.relativePath).map((entry) => entry.relativePath));
   for (const entry of [...before, ...after]) paths.add(entry.relativePath);
   const orderedPaths = [...paths].sort();
+  const lineConverted = new Set<string>();
 
   const inspect = (args: string[], view: string): void => {
     for (let offset = 0; offset < orderedPaths.length; offset += GIT_BATCH_SIZE) {
@@ -561,6 +562,7 @@ function assertAttributesPreserveBytes(
       const fields = text.split("\0");
       if (fields.pop() !== "" || fields.length % 3 !== 0) fail(`Git attribute output is malformed for ${view}`);
       const pathBytes = new Map<string, number>();
+      const lineAttributes = new Map<string, { text?: string; eol?: string }>();
       for (let index = 0; index < fields.length; index += 3) {
         const relativePath = fields[index]!;
         const name = fields[index + 1];
@@ -570,8 +572,7 @@ function assertAttributesPreserveBytes(
         if (bytes > 16 * 1024) fail(`Git attribute per-path output bound exceeded for ${view}`);
         pathBytes.set(relativePath, bytes);
         if (name === "filter" && value !== "unset") fail(`active Git filter attribute in ${view}`);
-        if (name === "text" && value !== "unset") fail(`active Git text conversion attribute in ${view}`);
-        if (name === "eol" && value !== "unset") fail(`active Git line-ending attribute in ${view}`);
+        if (name === "text" || name === "eol") lineAttributes.set(relativePath, { ...lineAttributes.get(relativePath), [name]: value });
         if (name === "ident" && value !== "unset") fail(`active Git ident attribute in ${view}`);
         if (name === "crlf" && value !== "unset") fail(`active Git CRLF attribute in ${view}`);
         // Even an explicit disabling assignment is rejected. Git versions and
@@ -579,6 +580,32 @@ function assertAttributesPreserveBytes(
         // accepting it could silently re-enable a worktree encoding conversion.
         if (name === "working-tree-encoding") fail(`Git attribute working-tree-encoding is unsupported in ${view}`);
       }
+      // Apply runs Git with core.autocrlf=false and core.eol=lf. A path then
+      // converts line endings when `text` is set or auto, or unspecified with
+      // `eol=lf`; LF output and CRLF-to-LF input are the identity exactly when
+      // none of its bytes is CR. Any other eol value stays refused.
+      for (const [relativePath, { text: textValue, eol }] of lineAttributes) {
+        if (eol !== undefined && eol !== "unset" && eol !== "lf") fail(`active Git line-ending attribute in ${view}`);
+        if (textValue === "unset") continue;
+        if (textValue !== undefined && textValue !== "set" && textValue !== "auto") fail(`active Git text conversion attribute in ${view}`);
+        if (textValue !== undefined || eol === "lf") lineConverted.add(relativePath);
+      }
+    }
+  };
+
+  const assertNoCarriageReturn = (relativePath: string, bytes: Buffer, view: string): void => {
+    if (bytes.includes(13)) fail(`active Git text conversion attribute on a path holding CR bytes in ${view}: ${JSON.stringify(relativePath)}`);
+  };
+  const assertConvertedBlobs = (entries: readonly GitTreeEntry[], view: string): void => {
+    const blobs = entries.filter((entry) => entry.type === "blob" && lineConverted.has(entry.relativePath));
+    let totalBytes = 0;
+    for (let offset = 0; offset < blobs.length; offset += GIT_BATCH_SIZE) {
+      const batch = blobs.slice(offset, offset + GIT_BATCH_SIZE);
+      const contents = readBlobBatch(root, batch.map((entry) => entry.object), data.limits.maxBytes - totalBytes);
+      batch.forEach((entry, index) => {
+        totalBytes += contents[index]!.length;
+        assertNoCarriageReturn(entry.relativePath, contents[index]!, view);
+      });
     }
   };
 
@@ -596,4 +623,9 @@ function assertAttributesPreserveBytes(
   inspect(["--cached"], "index");
   inspect([`--source=${trees.beforeTree}`], "before tree");
   inspect([`--source=${trees.afterTree}`], "after tree");
+  for (const entry of data.entries) {
+    if (entry.bytes !== undefined && lineConverted.has(entry.relativePath)) assertNoCarriageReturn(entry.relativePath, entry.bytes, "worktree");
+  }
+  assertConvertedBlobs(before, "before tree");
+  assertConvertedBlobs(after, "after tree");
 }

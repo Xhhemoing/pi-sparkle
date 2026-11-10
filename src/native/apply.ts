@@ -91,12 +91,15 @@ function fail(message: string): never {
   throw new DomainValidationError(message);
 }
 
+/** Refusal raised before the candidate's checker runs again; its message is host-generated. */
+export class ApplyPreconditionRefusal extends DomainValidationError {}
+
 interface GitOk { ok: true; stdout: string }
 interface GitErr { ok: false; detail: string }
 type GitResult = GitOk | GitErr;
 
 // Only the explicit exact path changes Git conversion behavior. Attributes are
-// refused separately; these options suppress implicit repository/global CRLF
+// checked separately; these options suppress implicit repository/global CRLF
 // conversion without editing the caller's configuration.
 const EXACT_GIT_OPTIONS = ["--no-replace-objects", "-c", "core.autocrlf=false", "-c", "core.eol=lf"] as const;
 
@@ -328,6 +331,25 @@ function captureWholeSnapshot(repository: string, descriptor: TrustedVerificatio
   });
 }
 
+function assertNamedSourceBranch(state: SourceState): void {
+  if (!state.branch.startsWith("refs/heads/")) fail("apply requires a named source branch; detached source HEAD is refused before verification");
+}
+
+/**
+ * The source-side predicates trusted apply checks before re-verification, for
+ * use before any candidate work. Read-only; apply still rechecks everything.
+ */
+export function assertSourceApplicable(sourceRepo: string, descriptor: TrustedVerificationDescriptor): void {
+  const root = repositoryIdentity(sourceRepo).root;
+  const state = sourceState(root);
+  if (state.status !== "") fail("source repository must be clean");
+  assertNamedSourceBranch(state);
+  const tree = gitOrThrow(root, [...EXACT_GIT_OPTIONS, "rev-parse", `${state.revision}^{tree}`]);
+  const snapshot = captureWholeSnapshot(root, descriptor);
+  assertGitAttributesPreserveExactBytes(snapshot, root, { beforeTree: tree, afterTree: tree });
+  assertExactSnapshotMatchesGitTree(snapshot, root, tree);
+}
+
 export class NativeApplySession {
   private readonly managed = new Map<string, NativeDisposeAuthorization>();
   private preparedDisposals = new WeakMap<NativeDisposeAuthorization, { readonly artifacts: PreparedNodeArtifacts; readonly delivery: DeliveryProof }>();
@@ -343,8 +365,19 @@ export class NativeApplySession {
    * is re-verified in place before any source mutation. Concurrent changes
    * cause refusal. A mid-apply failure preserves the observed source state
    * and retained candidate; an ambiguous outcome needs caller inspection.
+   * Validation refusals before re-verification are `ApplyPreconditionRefusal`.
    */
   async apply(input: NativeApplyInput): Promise<NativeApplyResult> {
+    const phase = { verifying: false };
+    try {
+      return await this.applyChecked(input, phase);
+    } catch (error) {
+      if (phase.verifying || !(error instanceof DomainValidationError) || error instanceof ApplyPreconditionRefusal) throw error;
+      throw new ApplyPreconditionRefusal(error.message);
+    }
+  }
+
+  private async applyChecked(input: NativeApplyInput, phase: { verifying: boolean }): Promise<NativeApplyResult> {
     if (this.closed) fail("native apply session is shut down");
     if (input === null || typeof input !== "object") fail("input is required");
     const signal = input.signal;
@@ -382,7 +415,7 @@ export class NativeApplySession {
     const sourceIdentity = repositoryIdentity(preflight.sourceRepo);
     const before = sourceState(preflight.sourceRepo);
     if (before.revision !== preflight.revision || before.status !== "") fail("source changed during apply preflight; candidate not applied");
-    if (!before.branch.startsWith("refs/heads/")) fail("apply requires a named source branch; detached source HEAD is refused before verification");
+    assertNamedSourceBranch(before);
     const candidate = path.resolve(candidatePath);
     const identity = candidateIdentity(candidate, sourceIdentity, preflight.revision);
     const exact = trustedVerification === undefined ? undefined : {
@@ -425,6 +458,7 @@ export class NativeApplySession {
 
     // Re-verify inside the candidate with the frozen host command before the
     // source is mutated. This executes candidate code; host policy applies.
+    phase.verifying = true;
     await reverifyCandidate(preflight.verification, candidate, signal, trustedVerification);
 
     if (signal?.aborted) fail("apply aborted after verification; candidate not applied");
