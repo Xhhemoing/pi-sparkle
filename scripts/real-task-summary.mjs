@@ -23,7 +23,21 @@ function observedUsd(row) {
 }
 function aggregate(records) {
   const costs = measurement(records.map(row => row.referenceUsd));
-  return { attempts: records.length, bySource: group(records, "source"), byArm: group(records, "arm"),
+  const failures = new Map();
+  for (const row of records) {
+    if (correctDelivery(row) === true) continue;
+    const key = typeof row.failureClass === "string" && row.failureClass !== UNKNOWN ? row.failureClass : "unclassified";
+    if (!failures.has(key)) failures.set(key, []);
+    failures.get(key).push(row);
+  }
+  const failureRanking = [...failures].map(([failureClass, rows]) => ({
+    failureClass, attempts: rows.length, knownUsd: rows.reduce((sum, row) => sum + observedUsd(row), 0),
+    unknownCostAttempts: rows.filter(row => !finite(row.referenceUsd)).length,
+    interventions: measurement(rows.map(row => row.interventions))
+  })).sort((a, b) => Number(a.failureClass === "unclassified") - Number(b.failureClass === "unclassified") ||
+    b.attempts - a.attempts || b.knownUsd - a.knownUsd ||
+    (a.failureClass < b.failureClass ? -1 : a.failureClass > b.failureClass ? 1 : 0));
+  return { attempts: records.length, bySource: group(records, "source"), byArm: group(records, "arm"), failureRanking,
     byStatus: group(records, "status"), byFailureClass: group(records, "failureClass"), byRootCause: group(records, "rootCause"),
     correctDeliveries: records.filter(row => correctDelivery(row) === true).length,
     correctDeliveryUnknown: records.filter(row => typeof correctDelivery(row) !== "boolean").length,
