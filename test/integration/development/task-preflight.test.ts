@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { AsyncLocalStorage } from "node:async_hooks";
 import cp, { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
@@ -127,21 +128,50 @@ test("cumulative TaskSpec worker allowance excludes slow first-factory preparati
   assert.equal(result.execution.acceptance.accepted, true, result.execution.reason);
 }));
 
-test("cumulative TaskSpec check pool charges base checks before its final phase", async () => fixture(async (sourceRepo, stateRoot) => {
-  const definition = spec("const value=require('node:fs').readFileSync('value.txt','utf8');setTimeout(()=>process.exit(0),value==='original'?300:2000)");
-  let factories = 0;
-  const result = await startDevelopmentTaskSpec({ sourceRepo, stateRoot, sandboxRoot: path.join(path.dirname(sourceRepo), "candidates"),
-    spec: { ...definition, worker: { model: "inherit", maxAttempts: 3 }, budget: { ...definition.budget, checkTotalSeconds: 1.5 } },
-    executorFactory(context) { factories++; return { async *execute(request, signal) {
-      await context.tools.find((tool) => tool.name === "sparkle_write_file")!.execute("change", { path: "value.txt", contents: "fixed" }, signal);
-      yield* new ProtocolChildExecutor().execute(request, signal);
-    } }; } });
-  assert.equal(result.preflight?.ok, true, result.preflight?.reason ?? "preflight did not run");
-  assert.ok(result.preflight.checksMs >= 300);
-  assert.equal(result.execution.acceptance.accepted, false);
-  assert.equal(factories, 1);
-  assert.equal(result.execution.loop?.stopReason, result.execution.effectsSettled === false ? "verification-unavailable" : "time-budget");
-  assert.equal(await readFile(path.join(sourceRepo, "value.txt"), "utf8"), "original");
+test("cumulative TaskSpec check pool charges base checks before its final phase", async (t) => fixture(async (sourceRepo, stateRoot) => {
+  const marker = "TASKSPEC_CUMULATIVE_POOL";
+  const definition = spec(`process.stdout.write('${marker}');`);
+  let factories = 0, elapsedMs = 0, finalTimerIndex: number | undefined;
+  const commandClock = new AsyncLocalStorage<boolean>(), realNow = performance.now.bind(performance);
+  const clock = t.mock.method(performance, "now", () => commandClock.getStore() === true ? realNow() : elapsedMs);
+  // Observe the real watchdog; never replace timers or process settlement.
+  const timers = t.mock.method(globalThis, "setTimeout", setTimeout);
+  const spawn = cp.spawn;
+  const commands = t.mock.method(cp, "spawn", ((...call: Parameters<typeof cp.spawn>) => {
+    // Child/pipe callbacks and their settlement timers inherit the real clock;
+    // the awaiting phase continuation retains the logical accounting clock.
+    const child = commandClock.run(true, () => spawn(...call)), argv = call[1];
+    if (call[0] === process.execPath && Array.isArray(argv)) {
+      const base = argv.includes(definition.checks[0]!.args[1]!);
+      const final = argv.some(arg => /[/\\]recipe-check\.(ts|js)$/.test(arg)) && argv.some(arg => arg.includes(marker));
+      if (final) finalTimerIndex = timers.mock.callCount();
+      // Charge logical phase time, independently of Git/process-startup speed.
+      // Neither 300ms nor 1300ms alone exhausts the declared 1500ms pool.
+      if (base || final) child.prependOnceListener("close", () => {
+        assert.equal(commandClock.getStore(), true, "process settlement must retain the real monotonic clock");
+        elapsedMs += base ? 300 : 1300;
+      });
+    }
+    return child;
+  }) as typeof cp.spawn);
+  syncBuiltinESMExports();
+  try {
+    const result = await startDevelopmentTaskSpec({ sourceRepo, stateRoot, sandboxRoot: path.join(path.dirname(sourceRepo), "candidates"),
+      spec: { ...definition, worker: { model: "inherit", maxAttempts: 3 }, budget: { ...definition.budget, checkTotalSeconds: 1.5 } },
+      executorFactory(context) { factories++; return { async *execute(request, signal) {
+        await context.tools.find((tool) => tool.name === "sparkle_write_file")!.execute("change", { path: "value.txt", contents: "fixed" }, signal);
+        yield* new ProtocolChildExecutor().execute(request, signal);
+      } }; } });
+    assert.equal(result.preflight?.ok, true, result.preflight?.reason ?? "preflight did not run");
+    assert.equal(result.preflight.checksMs, 300);
+    assert.notEqual(finalTimerIndex, undefined, "the actual final verifier must run");
+    assert.equal(timers.mock.calls[finalTimerIndex!]!.arguments[1], 1200,
+      "the final verifier must receive 1500ms minus the actual 300ms base charge");
+    assert.equal(result.execution.acceptance.accepted, false);
+    assert.equal(factories, 1);
+    assert.equal(result.execution.loop?.stopReason, result.execution.effectsSettled === false ? "verification-unavailable" : "time-budget");
+    assert.equal(await readFile(path.join(sourceRepo, "value.txt"), "utf8"), "original");
+  } finally { commands.mock.restore(); timers.mock.restore(); clock.mock.restore(); syncBuiltinESMExports(); }
 }));
 test("TaskSpec run prepares once then actual worker and final checker reuse the warm isolated candidate", async () => fixture(async (sourceRepo, stateRoot, revision) => {
   const definition = spec("const f=require('node:fs');if(f.readFileSync('.cache/ready','utf8')!=='ready')throw Error('cold');if(f.readFileSync('value.txt','utf8')==='original'){" + assertion + "process.exit(1)}", true);

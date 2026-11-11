@@ -280,10 +280,11 @@ export async function saveLoopArtifact(input: SaveLoopArtifactInput): Promise<Lo
       body: input.body
     };
     const bare = Buffer.byteLength(`${JSON.stringify({ ...envelope, byteLength: 0 }, null, 2)}\n`, "utf8");
-    const width = String(bare).length;
-    const byteLength = bare + width - 1;
-    if (String(byteLength).length !== width) {
-      throw new DomainValidationError("loop artifact byteLength could not be recorded stably");
+    let byteLength = bare;
+    for (;;) {
+      const next = bare + String(byteLength).length - 1;
+      if (next === byteLength) break;
+      byteLength = next;
     }
     const text = `${JSON.stringify({ ...envelope, byteLength }, null, 2)}\n`;
     if (Buffer.byteLength(text, "utf8") !== byteLength) {

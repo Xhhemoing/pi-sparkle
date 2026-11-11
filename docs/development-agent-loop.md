@@ -4,6 +4,8 @@
 
 本指南对应 [`development.ts`](../src/cli/development.ts) 的 CLI、[`DevelopmentController`](../src/development/controller.ts) 和 [`WorkItemDefinition`](../src/development/work-items.ts)。流程约束以 [AGENTS.md](../AGENTS.md)、[开发工作流](development-workflow.md)、[状态矩阵](status-matrix.md) 和当前任务计划为准。
 
+与 [TaskSpec 单任务路径](taskspec.md) 的关系：当前 `develop` 直接调用 `NativeWriteSession`，没有经过 TaskSpec 准备与基础预期流程，也没有继承它的美元预算。两者复用 Native 候选/检查机制，生命周期尚未统一。宿主可用 [工作项草稿桥接](taskspec.md#author-a-taskspec-from-a-work-item) 显式补齐输入后单独进入 TaskSpec；桥接不认领任务、不验证依赖、不更新队列状态。三板块和实际代码的对应关系见 [整体架构](framework.md#板块之间通过什么关联)。
+
 ```mermaid
 flowchart TD
   Q["Host 定义与任务认领"] --> L["保存 action 意图与候选 checkpoint"]
@@ -117,6 +119,8 @@ pnpm cli develop batch --queue addition-demo --project "$SPARKLE_PROJECT" --stat
 成功项停在 `ready-for-review`，batch 不会 accept、release、对账或集成代码。依赖、重叠范围和已有待审任务继续遵循原选择规则。`no-ready-task` 只是没有可领取项；检查 queueSummary 区分待审、blocked 和仍未满足依赖的任务，不把它解释为项目完成。重启后先检查保存的 action；未知效果仍须 host 核对，不能靠新 batch 重放。
 
 ### 查看候选的历史证据
+
+有队列 action ID 时使用本节；持有 Native/TaskSpec artifact 时使用 [Task Verdict](taskspec.md#read-a-historical-verdict)。两种投影格式不能互换。`runId` 和显式 artifact 引用可用于追溯，但历史检查、队列 accept 和源仓 apply 是独立事实。
 
 ```sh
 pnpm cli develop review --queue addition-demo --project "$SPARKLE_PROJECT" --state-root "$SPARKLE_STATE" --action action_v1_REPLACE_WITH_ACTUAL_UUID --json

@@ -87,6 +87,7 @@ function repositoryRoot(repository: string, expectedRoot?: string): string {
 }
 
 function runGit(repository: string, args: readonly string[], maxBuffer: number, input?: Buffer, allowNoMatch = false): Buffer {
+  const started = performance.now();
   const result = spawnSync("git", ["--no-replace-objects", "-C", repository, ...args], {
     input,
     encoding: "buffer",
@@ -100,7 +101,9 @@ function runGit(repository: string, args: readonly string[], maxBuffer: number, 
     const detail = (result.error as NodeJS.ErrnoException | undefined)?.code === "ENOBUFS"
       ? "Git output bound exceeded"
       : result.error?.message ?? (Buffer.isBuffer(result.stderr) ? result.stderr.toString("utf8") : "unknown Git error");
-    fail(`Git command failed: ${detail.slice(0, 240)}`);
+    const code = (result.error as NodeJS.ErrnoException | undefined)?.code ?? "none";
+    const bytes = (value: unknown): number | "unavailable" => Buffer.isBuffer(value) ? value.length : "unavailable";
+    fail(`Git command failed: ${detail.slice(0, 240)} [operation=${args[0]}; status=${result.status}; signal=${result.signal}; code=${code}; elapsedMs=${Math.max(0, Math.round(performance.now() - started))}; stdoutBytes=${bytes(result.stdout)}; stderrBytes=${bytes(result.stderr)}]`);
   }
   return result.stdout;
 }

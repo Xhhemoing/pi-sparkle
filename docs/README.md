@@ -3,6 +3,9 @@
 Every maintained document, grouped by what it is for. Start with [framework.md](framework.md) (architecture) and [roadmap.md](roadmap.md) (what comes next). Historical reports and plans live in [archive/](../archive/README.md) and never dispatch current work.
 
 ## All documents previously listed in the README
+- [TaskSpec preparation, execution and work-item authoring](taskspec.md)
+- [Experimental direct host execution entry](direct-development-task.md)
+- [Read-only context and diagnostic contribution SDK](sdk.md)
 - [Interactive current architecture guide (中文, offline HTML)](architecture.html)
 - [Detailed architecture map (中文, interactive HTML)](architecture-map.html) · [standalone SVG](architecture-map.svg)
 - [Current architecture and code map (中文)](framework.md)
