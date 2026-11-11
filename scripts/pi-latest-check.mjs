@@ -34,10 +34,21 @@ async function readPinnedVersions() {
     typeof packageJson.dependencies === "object"
       ? packageJson.dependencies
       : {};
+  const devDependencies =
+    packageJson !== null &&
+    typeof packageJson === "object" &&
+    packageJson.devDependencies !== null &&
+    typeof packageJson.devDependencies === "object"
+      ? packageJson.devDependencies
+      : {};
   return Object.fromEntries(
     PACKAGES.map((packageName) => [
       packageName,
-      typeof dependencies[packageName] === "string" ? dependencies[packageName] : null
+      typeof dependencies[packageName] === "string"
+        ? dependencies[packageName]
+        : typeof devDependencies[packageName] === "string"
+          ? devDependencies[packageName]
+          : null
     ])
   );
 }
