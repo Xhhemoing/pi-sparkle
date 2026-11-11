@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { dirname, join } from "node:path";
@@ -103,5 +104,26 @@ test("--strict exits 1 when fake registry versions are ahead of pinned versions"
     assert.equal(requests.length, 3);
     assert.match(result.stdout, /STATUS @earendil-works\/pi-agent-core: behind/);
     assert.match(result.stdout, /STATUS @earendil-works\/pi-ai: behind/);
+  });
+});
+
+test("the exact pi-coding-agent development pin is reported and compared with latest", async () => {
+  const agent = "@earendil-works/pi-coding-agent";
+  const manifest = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8")) as {
+    dependencies?: Record<string, unknown>;
+    devDependencies?: Record<string, unknown>;
+  };
+  const devPin = manifest.devDependencies?.[agent];
+  assert.equal(typeof devPin, "string", "this test relies on the repository pinning pi-coding-agent as a development dependency");
+  assert.equal(manifest.dependencies?.[agent], undefined);
+
+  await withFakeRegistry("999.0.0", async (registryUrl) => {
+    const offline = await runLatestCheck(["--offline"], { PI_COMPAT_REGISTRY_URL: registryUrl });
+    assert.equal(offline.code, 0);
+    assert.ok(offline.stdout.split(/\r?\n/).includes(`PINNED ${agent}: ${String(devPin)}`), offline.stdout);
+
+    const strict = await runLatestCheck(["--strict"], { PI_COMPAT_REGISTRY_URL: registryUrl });
+    assert.equal(strict.code, 1);
+    assert.ok(strict.stdout.split(/\r?\n/).includes(`STATUS ${agent}: behind`), strict.stdout);
   });
 });
