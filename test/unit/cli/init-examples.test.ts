@@ -126,6 +126,22 @@ describe("init writes example specs", () => {
     });
   });
 
+  it("doubles the curly single quotes that PowerShell also treats as quote characters", async () => {
+    await withDir(async (dir) => {
+      // U+2018, U+2019, U+201A and U+201B end a PowerShell single-quoted string just like U+0027.
+      const name = "it\u2019s \u2018quoted\u2019 \u201Alow\u201B o'brien $value";
+      const doubledName = "it\u2019\u2019s \u2018\u2018quoted\u2019\u2019 \u201A\u201Alow\u201B\u201B o''brien $value";
+      const captured = capture();
+      assert.equal(await initExamplesCommand(["--dir", join(dir, name)], captured.io), 0);
+      // The expected text is written out, not derived with the implementation's own expression.
+      const expected = join(dir.replace(/'/g, "''"), doubledName, CHILDREN_EXAMPLE_FILENAME);
+      assert.ok(
+        captured.out().endsWith(`next: pi-sparkle validate --children '${expected}'\n`),
+        `unexpected hint: ${JSON.stringify(captured.out().split("\n").at(-2))}`
+      );
+    });
+  });
+
   it("creates a missing --dir", async () => {
     await withDir(async (dir) => {
       const nested = join(dir, "deep", "nested");
